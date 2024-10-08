@@ -6,14 +6,10 @@ import (
 	"os"
 	"text/template"
 
+	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
-	log "github.com/sirupsen/logrus"
+	"github.com/labstack/echo/v4/middleware"
 )
-
-func init() {
-	log.SetFormatter(&log.JSONFormatter{})
-	log.SetOutput(os.Stdout)
-}
 
 type Template struct {
 	templates *template.Template
@@ -35,35 +31,33 @@ func main() {
 		templates: template.Must(template.ParseFS(os.DirFS("."), "views/*.html")),
 	}
 
+	e.Use(middleware.Logger())
+	e.Use(middleware.Secure())
+	e.Use(middleware.RemoveTrailingSlash())
+
 	roomService := &RoomService{
 		DB: &RoomSlice{
 			data: make([]Room, 0),
 		},
 	}
+
+	ss := SignalingServer{
+		users: []*User{},
+		upgrader: websocket.Upgrader{
+			ReadBufferSize:  1024,
+			WriteBufferSize: 1024,
+			CheckOrigin: func(r *http.Request) bool {
+				return true
+			},
+		},
+	}
+
 	e.Use(roomService.Use)
 
-	e.Static("/static", "assets")
+	e.Static("/assets", "static")
 
 	e.GET("/", staticRender("landing"))
+	e.GET("/websocket", ss.Handler)
 
-	e.Logger.Fatal(e.Start(":8080"))
+	e.Logger.Fatal(e.Start(":9090"))
 }
-
-// Ugrade policty from http request to websocket
-// TODO: to be defined
-/* ss := SignalingServer{
-	users: []*User{},
-	upgrader: websocket.Upgrader{
-		ReadBufferSize:  1024,
-		WriteBufferSize: 1024,
-		CheckOrigin: func(r *http.Request) bool {
-			return true
-		},
-	},
-}
-http.HandleFunc("/get", ss.Handler)
-log.Info("Signaling Server started")
-err := http.ListenAndServe(":9090", nil)
-if err != nil {
-	log.Panic(err)
-}*/
