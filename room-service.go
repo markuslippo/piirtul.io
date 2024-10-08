@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/labstack/echo/v4"
+	"fmt"
 )
 
 // Context room service key.
@@ -29,14 +29,6 @@ type RoomService struct {
 	DB RoomDatabase
 }
 
-// Middleware to provide handlers with access to the room service.
-func (roomService *RoomService) Use(next echo.HandlerFunc) echo.HandlerFunc {
-	return func(c echo.Context) error {
-		c.Set(ContextVariableName, roomService)
-		return next(c)
-	}
-}
-
 // Creates a new room for a user and returns it.
 func (roomService *RoomService) Create(user *User) (*Room, error) {
 	return roomService.DB.Create(user)
@@ -54,21 +46,31 @@ func (roomService *RoomService) Clear() error {
 
 // The implementation of room database as a slice.
 type RoomSlice struct {
-	data []Room
+	rooms []*Room
 }
 
 // Creates a new room for a user and returns it.
 func (roomSlice *RoomSlice) Create(user *User) (*Room, error) {
-
-	return nil, nil
+	room := &Room{
+		ID: user.Name,
+	}
+	roomSlice.rooms = append(roomSlice.rooms, room)
+	return room, nil
 }
 
 // Gets a room.
 func (roomSlice *RoomSlice) Get(roomID string) (*Room, error) {
-	return nil, nil
+	for i := 0; i < len(roomSlice.rooms); i++ {
+		room := roomSlice.rooms[i]
+		if room.ID == roomID {
+			return room, nil
+		}
+	}
+	return nil, fmt.Errorf("could not find room with id: %s", roomID)
 }
 
 // Clears all rooms.
 func (roomSlice *RoomSlice) Clear() error {
+	roomSlice.rooms = []*Room{}
 	return nil
 }

@@ -15,6 +15,7 @@ type User struct {
 
 type SignalingServer struct {
 	users    []*User
+	rooms    *RoomService
 	upgrader websocket.Upgrader
 	mux      sync.Mutex
 }
