@@ -1,11 +1,9 @@
 # piirtul.io
 WebRTC research
 
-
 # Run the server:
-    cd signaling-server
-    go run signaling.go
-
+when in directory piirtul.io
+go run .
 
 # Client:
-    Open index.html in browser
+Open http://localhost:9090 in browser (not bowser from mario)

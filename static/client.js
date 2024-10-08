@@ -1,4 +1,4 @@
-var connection = new WebSocket('ws://localhost:9090'); 
+var connection = new WebSocket('ws://localhost:9090/websocket'); 
 
 var loginInput = document.querySelector('#loginInput'); 
 var loginBtn = document.querySelector('#loginBtn'); 
