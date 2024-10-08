@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"os"
 	"sync"
 
 	log "github.com/sirupsen/logrus"
@@ -417,35 +416,5 @@ func (ss *SignalingServer) Handler(w http.ResponseWriter, r *http.Request) {
 			}
 			log.Error(err)
 		}
-	}
-
-}
-
-func init() {
-	log.SetFormatter(&log.JSONFormatter{})
-	log.SetOutput(os.Stdout)
-}
-
-func main() {
-	// Ugrade policty from http request to websocket
-	// TODO: to be defined
-	ss := SignalingServer{
-		users: []*User{},
-		upgrader: websocket.Upgrader{
-			ReadBufferSize:  1024,
-			WriteBufferSize: 1024,
-			CheckOrigin: func(r *http.Request) bool {
-				return true
-			},
-		},
-	}
-
-	http.HandleFunc("/", ss.Handler)
-
-	log.Info("Signaling Server started")
-
-	err := http.ListenAndServe(":9090", nil)
-	if err != nil {
-		log.Panic(err)
 	}
 }
