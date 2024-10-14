@@ -57,6 +57,7 @@ func main() {
 	e.Static("/assets", "static")
 
 	e.GET("/", staticRender("landing"))
+	e.GET("/kallu", staticRender("main"))
 	e.GET("/websocket", ss.Handler)
 
 	e.Logger.Fatal(e.Start(":9090"))

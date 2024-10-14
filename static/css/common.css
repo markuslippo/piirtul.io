@@ -1,0 +1,9 @@
+/* Style for body to fill the whole viewport */
+html, body {
+    height: 100%;
+    margin: 0;
+    display: flex;
+    justify-content: center; /* Centers horizontally */
+    align-items: center; /* Centers vertically */
+    background-color: #0e1113;
+}

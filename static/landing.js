@@ -16,5 +16,6 @@ joinRoomButton.addEventListener("click", function() {
         alert("Please enter a name");
     } else {
         const roomCode = prompt("Please enter the 4-letter room code:");
+        window.location.href = `/kallu`;
     }
 });
