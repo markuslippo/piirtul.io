@@ -8,53 +8,187 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-// Offer struct
+// Offer message
 type Offer struct {
 	Type string `json:"type"`
 	Sdp  string `json:"sdp"`
 }
 
-// Answer struct
+// Answer message
 type Answer struct {
 	Type string `json:"type"`
 	Sdp  string `json:"sdp"`
 }
 
-// Candidate struct
+// Candidate message
 type Candidate struct {
 	Candidate     string `json:"candidate"`
 	SdpMid        string `json:"sdpMid"`
 	SdpMLineIndex int    `json:"sdpMLineIndex"`
 }
 
-// SignalMessage template to establish connection
+// SignalMessage template for sending connection messages
 type SignalMessage struct {
 	Type      string     `json:"type,omitempty"`
 	Name      string     `json:"name,omitempty"`
+	RoomCode  string     `json:"roomCode,omitempty"`
 	Offer     *Offer     `json:"offer,omitempty"`
 	Answer    *Answer    `json:"answer,omitempty"`
 	Candidate *Candidate `json:"candidate,omitempty"`
 }
 
-// offerEvent forwards an offer to a remote peer
-func (ss *SignalingServer) offerEvent(conn *websocket.Conn, data SignalMessage) error {
-	var sm SignalMessage
+// Handler is a HTTP handler function that upgrades the HTTP request to a WebSocket connection
+// and manages WebSocket messages and connection lifecycle.
+func (ss *SignalingServer) Handler(c echo.Context) error {
 
-	author := ss.UserFromConn(conn)
-	if author == nil {
-		return errors.New("unregistered author")
+	ws, err := ss.upgrader.Upgrade(c.Response(), c.Request(), nil)
+	if err != nil {
+		return err
 	}
+	// A WebSocket connection is established
+	c.Logger().Debugf("%v accesses the server", ws.RemoteAddr())
+	// A loop to handle events/messages for this WebSocket connection
+	for {
+		// Call the connHandler method to process the messages
+		err := ss.connHandler(ws)
+		// Handle possible errors
+		if err != nil {
+			// Client closed the browser
+			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				user := ss.UserFromConn(ws)
+				if user == nil {
+					c.Logger().Debugf("Connection closed for %v", ws.RemoteAddr())
+				} else {
+					ss.leaveEvent(ws)
+					c.Logger().Debugf("Connection closed for user %v", user.Name)
+				}
+				return nil
+			}
+			// Connection closed unexpectedly
+			if websocket.IsUnexpectedCloseError(err) {
+				c.Logger().Errorf("Unexpected WebSocket closure for %v: %v", ws.RemoteAddr(), err)
+				return err
+			}
 
-	peer := ss.UserFromName(data.Name)
-	if peer == nil {
-		return errors.New("unknown peer")
+			// Log any other errors
+			c.Logger().Errorf("Error occurred while handling WebSocket connection: %v", err)
+			return err
+		}
 	}
+}
 
-	if err := ss.UpdatePeer(author.Name, peer.Name); err != nil {
+// connHandler is the handler for incoming WebSocket connections.
+// Messages from the client are parsed and then routed to the appropriate event handler based on type.
+//
+// Parameters:
+// - connection: A WebSocket connection to the client.
+//
+// Returns an error if there are any issues processing the message.
+func (ss *SignalingServer) connHandler(connection *websocket.Conn) error {
+
+	var message SignalMessage
+
+	//Read the next message from the WebSocket connection
+	_, raw, err := connection.ReadMessage()
+	if err != nil {
 		return err
 	}
 
-	sm.Name = author.Name
+	// Convert JSON to SignalMessage Struct data with Unmarshal.
+	err = json.Unmarshal(raw, &message)
+	if err != nil {
+		// If error, Marshal the DefaultError to JSON
+		response, err := json.Marshal(DefaultError{Type: "error", Message: "Incorrect data format"})
+		if err != nil {
+			return err
+		}
+		err = connection.WriteMessage(websocket.TextMessage, response)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	// Handle different message types
+	switch message.Type {
+	case "createRoom":
+		err = ss.createRoom(connection, message)
+	case "joinRoom":
+		err = ss.joinRoom(connection, message)
+	case "leave":
+		err = ss.leaveEvent(connection)
+	default:
+		err = unknownCommandEvent(connection, raw)
+	}
+
+	// Return any errors from the event handlers
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// For handling the createRoom message. The room's creator is now waiting to connect with participant.
+func (ss *SignalingServer) createRoom(conn *websocket.Conn, data SignalMessage) error {
+
+	if data.Name == "" {
+		return errors.New("username required")
+	}
+
+	creator := ss.UserFromName(data.Name)
+	if creator != nil {
+		return nil
+	}
+
+	ss.AddUser(conn, data.Name)
+	type LoginResponse struct {
+		Type     string `json:"type"`
+		Success  bool   `json:"success"`
+		RoomCode string `json:"roomCode"`
+	}
+
+	response, err := json.Marshal(LoginResponse{Type: "createRoom", Success: true, RoomCode: data.Name})
+	if err != nil {
+		return err
+	}
+
+	err = conn.WriteMessage(websocket.TextMessage, response)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// For handling the joinRoom message.
+// 1. The participant logins
+// 2. The server forwards an offer from the participant to the room creator.
+// 5. The creator sends an answer back to the participant.
+// 6. ICE candidate messages are exchanged to establish the connection.
+func (ss *SignalingServer) joinRoom(conn *websocket.Conn, data SignalMessage) error {
+	if data.Name == "" {
+		return errors.New("username required")
+	}
+	ss.AddUser(conn, data.Name)
+	participant := ss.UserFromConn(conn)
+	if participant == nil {
+		return errors.New("unregistered participant")
+	}
+
+	creator := ss.UserFromName(data.Name)
+	if creator == nil {
+		return errors.New("unknown peer (room creator)")
+	}
+
+	err := ss.UpdatePeer(participant.Name, creator.Name)
+	if err != nil {
+		return err
+	}
+
+	// Forward the offer from the participant to the room creator
+	var sm SignalMessage
+	sm.Name = participant.Name
 	sm.Offer = data.Offer
 	sm.Type = "offer"
 	out, err := json.Marshal(sm)
@@ -62,71 +196,99 @@ func (ss *SignalingServer) offerEvent(conn *websocket.Conn, data SignalMessage) 
 		return err
 	}
 
-	if err = peer.Conn.WriteMessage(websocket.TextMessage, out); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// Forwards Answer to original peer.
-func (ss *SignalingServer) answerEvent(conn *websocket.Conn, data SignalMessage) error {
-	var sm SignalMessage
-
-	author := ss.UserFromConn(conn)
-	if author == nil {
-		return errors.New("unregistered author")
-	}
-
-	peer := ss.UserFromName(data.Name)
-	if peer == nil {
-		return errors.New("unknown requested peer")
-	}
-
-	if err := ss.UpdatePeer(author.Name, data.Name); err != nil {
-		return err
-	}
-
-	sm.Answer = data.Answer
-	sm.Type = "answer"
-	out, err := json.Marshal(sm)
+	// Send the offer to the room creator
+	err = creator.Conn.WriteMessage(websocket.TextMessage, out)
 	if err != nil {
 		return err
 	}
 
-	if err = peer.Conn.WriteMessage(websocket.TextMessage, out); err != nil {
-		return err
+	// Wait for the answer from the creator and forward it back to the participant
+	for {
+		_, raw, err := creator.Conn.ReadMessage()
+		if err != nil {
+			return err
+		}
+
+		// Unmarshal the incoming message to check its type
+		err = json.Unmarshal(raw, &sm)
+		if err != nil {
+			return err
+		}
+
+		// If the creator sent an answer, forward it to the participant
+		if sm.Type == "answer" {
+			// Forward the answer to the participant
+			err = conn.WriteMessage(websocket.TextMessage, raw)
+			if err != nil {
+				return err
+			}
+			break
+		}
 	}
+
+	// Asynchronous Goroutine
+	go ss.handleCandidateExchange(conn, creator.Conn)
 
 	return nil
 }
 
-// Forwards candidate to original peer.
-func (ss *SignalingServer) candidateEvent(conn *websocket.Conn, data SignalMessage) error {
-	var sm SignalMessage
+func (ss *SignalingServer) handleCandidateExchange(conn, creatorConn *websocket.Conn) {
+	for {
+		// Read the participant's ICE candidate
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
+			// Close the connection if reading fails (e.g., participant leaves or other error)
+			conn.Close()
+			creatorConn.Close()
+			return
+		}
 
-	author := ss.UserFromConn(conn)
-	if author == nil {
-		return errors.New("unregistered connection")
+		// Check for a "null" or final ICE candidate
+		var candidate SignalMessage
+		err = json.Unmarshal(raw, &candidate)
+		if err == nil && candidate.Candidate == nil {
+			// Close the connections when the final ICE candidate is received
+			conn.Close()
+			creatorConn.Close()
+			return
+		}
+
+		// Forward the ICE candidate to the room creator
+		err = creatorConn.WriteMessage(websocket.TextMessage, raw)
+		if err != nil {
+			conn.Close()
+			creatorConn.Close()
+			return
+		}
+
+		// Read the creator's ICE candidate
+		_, raw, err = creatorConn.ReadMessage()
+		if err != nil {
+			// Close the connection if reading fails (e.g., creator leaves)
+			conn.Close()
+			creatorConn.Close()
+			conn.Close()
+			creatorConn.Close()
+			return
+		}
+
+		// Check for a "null" or final ICE candidate from the creator
+		err = json.Unmarshal(raw, &candidate)
+		if err == nil && candidate.Candidate == nil {
+			// Gracefully close the connection when the final ICE candidate is received
+			conn.Close()
+			creatorConn.Close()
+			return
+		}
+
+		// Forward the ICE candidate to the participant
+		err = conn.WriteMessage(websocket.TextMessage, raw)
+		if err != nil {
+			conn.Close()
+			creatorConn.Close()
+			return
+		}
 	}
-
-	peer := ss.UserFromName(data.Name)
-	if peer == nil {
-		return errors.New("unregistered peer")
-	}
-
-	sm.Candidate = data.Candidate
-	sm.Type = "candidate"
-	out, err := json.Marshal(sm)
-	if err != nil {
-		return err
-	}
-
-	if err = peer.Conn.WriteMessage(websocket.TextMessage, out); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // LeaveEvent terminates a connection. (example: client closed the browser)
@@ -149,43 +311,6 @@ func (ss *SignalingServer) leaveEvent(conn *websocket.Conn) error {
 			return err
 		}
 	}
-
-	return nil
-}
-
-// TODO NEW LOGIN
-func (ss *SignalingServer) loginEvent(conn *websocket.Conn, data SignalMessage) error {
-	author := ss.UserFromName(data.Name)
-	if author != nil {
-		return nil
-	}
-
-	ss.AddUser(conn, data.Name)
-	type LoginResponse struct {
-		Type    string `json:"type"`
-		Success bool   `json:"success"`
-	}
-	out, err := json.Marshal(LoginResponse{Type: "login", Success: true})
-	if err != nil {
-		return err
-	}
-
-	if err = conn.WriteMessage(websocket.TextMessage, out); err != nil {
-		return err
-	}
-
-	type Users struct {
-		Type  string   `json:"type"`
-		Users []string `json:"users"`
-	}
-	out, err = json.Marshal(Users{Type: "users", Users: ss.AllUserNames()})
-	if err != nil {
-		return err
-	}
-
-	ss.NotifyUsers(func(user *User) {
-		user.Conn.WriteMessage(websocket.TextMessage, out)
-	})
 
 	return nil
 }
@@ -214,70 +339,4 @@ func unknownCommandEvent(conn *websocket.Conn, raw []byte) error {
 	}
 
 	return nil
-}
-
-func (ss *SignalingServer) connHandler(conn *websocket.Conn) error {
-	var message SignalMessage
-
-	_, raw, err := conn.ReadMessage()
-	if err != nil {
-		return err
-	}
-
-	err = json.Unmarshal(raw, &message)
-	if err != nil {
-		out, err := json.Marshal(DefaultError{Type: "error", Message: "Incorrect data format"})
-		if err != nil {
-			return err
-		}
-
-		err = conn.WriteMessage(websocket.TextMessage, out)
-		if err != nil {
-			return err
-		}
-		return nil
-	}
-
-	switch message.Type {
-	case "login":
-		err = ss.loginEvent(conn, message)
-	case "offer":
-		err = ss.offerEvent(conn, message)
-	case "answer":
-		err = ss.answerEvent(conn, message)
-	case "candidate":
-		err = ss.candidateEvent(conn, message)
-	case "leave":
-		err = ss.leaveEvent(conn)
-	default:
-		err = unknownCommandEvent(conn, raw)
-	}
-
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (ss *SignalingServer) Handler(c echo.Context) error {
-	ws, err := ss.upgrader.Upgrade(c.Response(), c.Request(), nil)
-	if err != nil {
-		return err
-	}
-
-	c.Logger().Debugf("%v accesses the server", ws.RemoteAddr())
-	for {
-		err := ss.connHandler(ws)
-		if err != nil && err.Error() == "websocket: close 1001 (going away)" {
-			user := ss.UserFromConn(ws)
-			if user == nil {
-				c.Logger().Debugf("connection closed for %v", ws.RemoteAddr())
-			} else {
-				ss.leaveEvent(ws)
-				c.Logger().Debugf("connection closed for %v", user.Name)
-			}
-			c.Logger().Error(err)
-		}
-	}
 }

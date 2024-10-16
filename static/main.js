@@ -1,8 +1,32 @@
-const users = ['Ryan Gosling', 'You']
-const chatMessages = [
-    { user: 'You', message: 'Hi there fucking legend!' },
-    { user: 'Ryan Gosling', message: 'I fucking love you my man' },
-]
+const users = []
+const chatMessages = []
+
+// Retrieve the username, role, and roomCode from localStorage
+document.addEventListener("DOMContentLoaded", function() {
+
+    if (window.name) {
+        // Handle room creation or joining based on role
+        if (window.role === 'creator') {
+            send({
+                type: "createRoom",
+                name: window.name
+            });
+        } else if (role === 'participant') {
+            send({
+                type: "joinRoom",
+                name: name,
+                roomCode: roomCode
+            });
+        }
+
+        // Display the user in the user list
+        updateUserList(name);
+
+    } else {
+        alert("No username found! Redirecting to the homepage.");
+        window.location.href = '/';
+    }
+});
 
 // Populate user list
 const userList = document.getElementById('user-list');
@@ -41,6 +65,7 @@ chatInput.addEventListener('keydown', (event) => {
     }
 });
 
+
 function sendMessage() {
     const message = chatInput.value;
     if (message) {
@@ -53,9 +78,6 @@ function sendMessage() {
         chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
         chatInput.focus();
 
-        messageDiv.addEventListener('click', () => {
-            speakMessage(messageDiv.textContent);
-        });
     }
 }
 
@@ -65,13 +87,3 @@ const quitButton = document.querySelector('.quit-button')
 quitButton.addEventListener('click', () => {
     window.location.href = '/'
 })
-
-function speakUserName(name) {
-    const utterance = new SpeechSynthesisUtterance(name);
-    speechSynthesis.speak(utterance);
-}
-
-function speakMessage(message) {
-    const utterance = new SpeechSynthesisUtterance(message);
-    speechSynthesis.speak(utterance);
-}
