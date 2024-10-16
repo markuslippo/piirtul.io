@@ -35,14 +35,13 @@ func main() {
 	e.Use(middleware.Secure())
 	e.Use(middleware.RemoveTrailingSlash())
 
-	roomService := &RoomService{
-		DB: &RoomSlice{
-			data: make([]Room, 0),
-		},
-	}
-
 	ss := SignalingServer{
 		users: []*User{},
+		rooms: &RoomService{
+			DB: &RoomSlice{
+				rooms: []*Room{},
+			},
+		},
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -51,8 +50,6 @@ func main() {
 			},
 		},
 	}
-
-	e.Use(roomService.Use)
 
 	e.Static("/assets", "static")
 
