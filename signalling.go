@@ -36,6 +36,110 @@ type SignalMessage struct {
 	Candidate *Candidate `json:"candidate,omitempty"`
 }
 
+// DefaultError template
+type DefaultError struct {
+	Type    string `json:"type"`
+	Message string `json:"message"`
+}
+
+// Handler is a HTTP handler function that upgrades the HTTP request to a WebSocket connection,
+// routes WebSocket messages and manages the connection lifecycle.
+func (ss *SignalingServer) Handler(c echo.Context) error {
+
+	ws, err := ss.upgrader.Upgrade(c.Response(), c.Request(), nil)
+	if err != nil {
+		return err
+	}
+	// A WebSocket connection is established
+	c.Logger().Debugf("%v accesses the server", ws.RemoteAddr())
+	// A loop to handle events/messages for this WebSocket connection
+	for {
+		// Call the connHandler method to process the messages
+		err := ss.connHandler(ws)
+		// Handle possible errors
+		if err != nil {
+			// Client closed the browser
+			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				user := ss.UserFromConn(ws)
+				if user == nil {
+					c.Logger().Debugf("Connection closed for %v", ws.RemoteAddr())
+				} else {
+					ss.leaveEvent(ws)
+					c.Logger().Debugf("Connection closed for user %v", user.Name)
+				}
+				return nil
+			}
+			// Connection closed unexpectedly
+			if websocket.IsUnexpectedCloseError(err) {
+				c.Logger().Errorf("Unexpected WebSocket closure for %v: %v", ws.RemoteAddr(), err)
+				return err
+			}
+
+			// Log any other errors
+			c.Logger().Errorf("Error occurred while handling WebSocket connection: %v", err)
+			return err
+		}
+	}
+}
+
+// connHandler is the handler for incoming messages from WebSocket connections.
+// Messages from the client are parsed and then routed to the appropriate event handler based on type.
+//
+// Parameters:
+// - connection: A WebSocket connection to a single client.
+//
+// Returns an error if there are any issues processing the message.
+func (ss *SignalingServer) connHandler(connection *websocket.Conn) error {
+
+	var message SignalMessage
+
+	//Read the next message from the WebSocket connection
+	_, raw, err := connection.ReadMessage()
+	if err != nil {
+		return err
+	}
+
+	// Convert JSON to SignalMessage Struct data with Unmarshal.
+	err = json.Unmarshal(raw, &message)
+	if err != nil {
+		// If error, Marshal the DefaultError to JSON
+		response, err := json.Marshal(DefaultError{Type: "error", Message: "Incorrect data format"})
+		if err != nil {
+			return err
+		}
+		err = connection.WriteMessage(websocket.TextMessage, response)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	// Handle different message types
+	switch message.Type {
+	case "login":
+		err = ss.loginEvent(connection, message)
+	case "offer":
+		err = ss.offerEvent(connection, message)
+	case "answer":
+		err = ss.answerEvent(connection, message)
+	case "candidate":
+		err = ss.candidateEvent(connection, message)
+	case "leave":
+		err = ss.leaveEvent(connection)
+	case "roomAvailability":
+		err = ss.roomAvailabilityEvent(connection, message)
+	default:
+		err = unknownCommandEvent(connection, raw)
+	}
+
+	// Return any errors from the event handlers
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // offerEvent forwards an offer to a remote peer
 func (ss *SignalingServer) offerEvent(conn *websocket.Conn, data SignalMessage) error {
 	var sm SignalMessage
@@ -50,7 +154,8 @@ func (ss *SignalingServer) offerEvent(conn *websocket.Conn, data SignalMessage) 
 		return errors.New("unknown peer")
 	}
 
-	if err := ss.UpdatePeer(author.Name, peer.Name); err != nil {
+	err := ss.UpdatePeer(author.Name, peer.Name)
+	if err != nil {
 		return err
 	}
 
@@ -170,7 +275,8 @@ func (ss *SignalingServer) loginEvent(conn *websocket.Conn, data SignalMessage) 
 		return err
 	}
 
-	if err = conn.WriteMessage(websocket.TextMessage, out); err != nil {
+	err = conn.WriteMessage(websocket.TextMessage, out)
+	if err != nil {
 		return err
 	}
 
@@ -190,11 +296,42 @@ func (ss *SignalingServer) loginEvent(conn *websocket.Conn, data SignalMessage) 
 	return nil
 }
 
-type DefaultError struct {
-	Type    string `json:"type"`
-	Message string `json:"message"`
+// HandlerEvent that checks whether a room exists with the given roomCode.
+// NOTE: Currently, roomCode == owner name.
+// No room implementation yet but should be easy to change peer to UserFromRoom etc
+func (ss *SignalingServer) roomAvailabilityEvent(conn *websocket.Conn, data SignalMessage) error {
+	type RoomAvailabilityResponse struct {
+		Type    string `json:"type"`
+		Success bool   `json:"success"`
+		Error   string `json:"error,omitempty"`
+	}
+
+	owner := ss.UserFromName(data.Name)
+
+	var response RoomAvailabilityResponse
+	response.Type = "roomAvailability"
+	if owner != nil {
+		response.Success = true
+	} else {
+		response.Success = false
+	}
+
+	out, err := json.Marshal(response)
+	if err != nil {
+		return err
+	}
+
+	// Send the room availability result back to the client
+	err = conn.WriteMessage(websocket.TextMessage, out)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
+// unknownCommandEvent is the handler for messages that do not follow the SignalMessage template.
+// Returns an error message.
 func unknownCommandEvent(conn *websocket.Conn, raw []byte) error {
 	var out []byte
 	var message SignalMessage
@@ -208,76 +345,10 @@ func unknownCommandEvent(conn *websocket.Conn, raw []byte) error {
 	if err != nil {
 		return err
 	}
-
-	if err = conn.WriteMessage(websocket.TextMessage, out); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (ss *SignalingServer) connHandler(conn *websocket.Conn) error {
-	var message SignalMessage
-
-	_, raw, err := conn.ReadMessage()
-	if err != nil {
-		return err
-	}
-
-	err = json.Unmarshal(raw, &message)
-	if err != nil {
-		out, err := json.Marshal(DefaultError{Type: "error", Message: "Incorrect data format"})
-		if err != nil {
-			return err
-		}
-
-		err = conn.WriteMessage(websocket.TextMessage, out)
-		if err != nil {
-			return err
-		}
-		return nil
-	}
-
-	switch message.Type {
-	case "login":
-		err = ss.loginEvent(conn, message)
-	case "offer":
-		err = ss.offerEvent(conn, message)
-	case "answer":
-		err = ss.answerEvent(conn, message)
-	case "candidate":
-		err = ss.candidateEvent(conn, message)
-	case "leave":
-		err = ss.leaveEvent(conn)
-	default:
-		err = unknownCommandEvent(conn, raw)
-	}
-
+	err = conn.WriteMessage(websocket.TextMessage, out)
 	if err != nil {
 		return err
 	}
 
 	return nil
-}
-
-func (ss *SignalingServer) Handler(c echo.Context) error {
-	ws, err := ss.upgrader.Upgrade(c.Response(), c.Request(), nil)
-	if err != nil {
-		return err
-	}
-
-	c.Logger().Debugf("%v accesses the server", ws.RemoteAddr())
-	for {
-		err := ss.connHandler(ws)
-		if err != nil && err.Error() == "websocket: close 1001 (going away)" {
-			user := ss.UserFromConn(ws)
-			if user == nil {
-				c.Logger().Debugf("connection closed for %v", ws.RemoteAddr())
-			} else {
-				ss.leaveEvent(ws)
-				c.Logger().Debugf("connection closed for %v", user.Name)
-			}
-			c.Logger().Error(err)
-		}
-	}
 }

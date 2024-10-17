@@ -1,4 +1,3 @@
-/* The contents of the web page */
 .centerized {
     display: flex;
     flex-direction: column;  /* Aligns the content in a vertical column */
@@ -17,6 +16,17 @@
     font-size: 6em;
 }
 
+p {
+    color: white !important; /* Force white color on all <p> elements */
+}
+
+#connectedUserDisplay {
+    color: white !important; /* Ensure the connected user display text is white */
+}
+
+#chatArea div {
+    color: white !important; /* Ensure messages in the chat area are white */
+}
 /* The container containing the name input and room buttons. */
 .room-form { 
     display: flex;
