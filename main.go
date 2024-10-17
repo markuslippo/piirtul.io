@@ -57,5 +57,6 @@ func main() {
 	e.GET("/kallu", staticRender("main"))
 	e.GET("/websocket", ss.Handler)
 
-	e.Logger.Fatal(e.Start(":9090"))
+	//e.Logger.Fatal(e.Start(":9090"))
+	e.Logger.Fatal(e.Start("localhost:9090"))
 }
