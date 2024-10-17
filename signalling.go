@@ -74,6 +74,7 @@ func (ss *SignalingServer) Handler(c echo.Context) error {
 			// Connection closed unexpectedly
 			if websocket.IsUnexpectedCloseError(err) {
 				c.Logger().Errorf("Unexpected WebSocket closure for %v: %v", ws.RemoteAddr(), err)
+				ss.leaveServerEvent(ws)
 				return err
 			}
 
@@ -126,8 +127,10 @@ func (ss *SignalingServer) connHandler(connection *websocket.Conn) error {
 		err = ss.answerConnectionEvent(connection, message)
 	case "candidate":
 		err = ss.candidateExchangingEvent(connection, message)
-	case "leave":
-		err = ss.leaveServerEvent(connection)
+	case "leaveRoom":
+		//TODO: implement leaving the room, can be left later...
+		//because this requires many things. need to remove the user from room, remove pairing, close the RTC connection in the frontend (need to research)
+		//err = ss.leaveRoomEvent(connection)
 	case "roomAvailability":
 		err = ss.roomAvailabilityEvent(connection, message)
 	default:
