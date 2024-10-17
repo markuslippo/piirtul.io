@@ -7,6 +7,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// The server instance
 type SignalingServer struct {
 	users    []*User
 	rooms    *RoomService
@@ -112,4 +113,35 @@ func (ss *SignalingServer) UpdatePeer(origin, peer string) error {
 	}
 
 	return errors.New("missing origin user")
+}
+
+// Removes user the user with this connection.
+func (ss *SignalingServer) RemoveUser(conn *websocket.Conn) error {
+	ss.mux.Lock()
+	defer ss.mux.Unlock()
+
+	for i, user := range ss.users {
+		if user.Conn == conn {
+			// Remove the user from the list by appending everything before and after the user
+			ss.users = append(ss.users[:i], ss.users[i+1:]...)
+			return nil
+		}
+	}
+
+	return errors.New("user not found")
+}
+
+// Removes the peer association for a user who is left behind when their peer disconnects.
+func (ss *SignalingServer) RemovePeerForUser(peerName string) error {
+	ss.mux.Lock()
+	defer ss.mux.Unlock()
+
+	for _, user := range ss.users {
+		if user.Peer == peerName {
+			user.Peer = ""
+			return nil
+		}
+	}
+
+	return errors.New("peer not found")
 }

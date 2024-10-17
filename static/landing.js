@@ -20,7 +20,7 @@ connection.onmessage = function (message) {
     var data = JSON.parse(message.data);
     
     switch(data.type) {
-        case "login":
+        case "initiation":
             onLogin(data.success);
             break;
         case "offer":
@@ -61,8 +61,9 @@ createRoomButton.addEventListener("click", function() {
         console.log("Creating room as:", name);
         document.getElementById('roomStatus').textContent = "Waiting for users to join room";
         send({
-            type: "login",
-            name: name
+            type: "initiation",
+            name: name,
+            role: "creator"
         });
     } else {
         console.log("Please enter a name");
@@ -193,8 +194,9 @@ function onRoomAvailability(success) {
         // Room (user) found, proceed with login
         console.log("Room available. Proceeding with login.");
         send({
-            type: "login",
-            name: name
+            type: "initiation",
+            name: name,
+            role: "participant"
         });
         connectedUser = roomOwner;
     } else {
