@@ -4,12 +4,17 @@
     align-items: center;     /* Centers items within the column */
 }
 
-/* The landing page header and subtext */
-.landing {
-    color: white;
-    text-align: center;      /* Centers text inside the column */
-    padding: 20px;
-    font-size: 20px;
+/* The landing page logo */
+.landing #logo-container {
+    width: 700px;
+    height: auto;
+    margin-top: 50%;
+    transition: margin-top 0.5s ease-in-out;
+}
+
+.landing #logo-container svg {
+    width: 100%;
+    height: auto;
 }
 
 .header {
@@ -35,6 +40,17 @@ p {
     justify-content: center;
     gap: 10px;
     padding: 20px;
+}
+
+#demo2-content {
+    display: flex;
+    flex-direction: column;            
+    align-items: center;
+}
+
+.room-form, #demo2-content {
+    opacity: 0;
+    transition: opacity 0.5s ease-in-out;
 }
 
 .room-buttons {

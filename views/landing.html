@@ -11,11 +11,11 @@
     <link rel="shortcut icon" type="image/png" href="assets/images/favicon.png"/>
 </head>
 <body>
+
     <div class="centerized">
         <div class="landing">
-            <h1 class="header">Piirtul.io</h1>
+            <div id="logo-container"></div> 
         </div>
-
         <form class="room-form">
             <input type="text" id="name" name="name" placeholder="Enter your name">
             <div class="room-buttons">
@@ -24,19 +24,22 @@
             </div>
         </form>
 
-        <input type="text" id="messageInput" placeholder="Type your message here...">
-        <button id="sendMessageButton">Send</button>
-        <br> 
-        <p><span id="roomStatus"></span></p>
-        <p>Connected to: <span id="connectedUserDisplay">None</span></p>
-        <br>
-        <p>MESSAGES:</p>
-        <div id="chatArea"></div>
+        <div id="demo2-content">
+            <input type="text" id="messageInput" placeholder="Type your message here...">
+            <button id="sendMessageButton">Send</button>
+            <br> 
+            <p><span id="roomStatus"></span></p>
+            <p>Connected to: <span id="connectedUserDisplay">None</span></p>
+            <br>
+            <p>MESSAGES:</p>
+            <div id="chatArea"></div>
+        </div>
     </div>
 
 <script src="http://code.jquery.com/jquery-1.10.2.min.js"></script>
 <script src="http://netdna.bootstrapcdn.com/bootstrap/3.3.1/js/bootstrap.min.js"></script>
 <script src="/assets/landing.js"></script>
+<script src="/assets/logo-animation.js"></script> 
 </body>
 </html>
 {{ end }}
