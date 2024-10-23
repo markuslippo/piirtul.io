@@ -1,7 +1,7 @@
-const users = ['Ryan Gosling', 'You']
+const users = ['Some Guy', 'You']
 const chatMessages = [
-    { user: 'You', message: 'Hi there fucking legend!' },
-    { user: 'Ryan Gosling', message: 'I fucking love you my man' },
+    { user: 'You', message: 'Hi there!' },
+    { user: 'Some Guy', message: 'Hello hello' },
 ]
 
 // Populate user list
