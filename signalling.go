@@ -66,7 +66,7 @@ func (ss *SignalingServer) Handler(c echo.Context) error {
 				if user == nil {
 					c.Logger().Debugf("Connection closed for %v", ws.RemoteAddr())
 				} else {
-					ss.leaveServerEvent(ws)
+					ss.leaveEvent(ws)
 					c.Logger().Debugf("Connection closed for user %v", user.Name)
 				}
 				return nil
@@ -74,7 +74,7 @@ func (ss *SignalingServer) Handler(c echo.Context) error {
 			// Connection closed unexpectedly
 			if websocket.IsUnexpectedCloseError(err) {
 				c.Logger().Errorf("Unexpected WebSocket closure for %v: %v", ws.RemoteAddr(), err)
-				ss.leaveServerEvent(ws)
+				ss.leaveEvent(ws)
 				return err
 			}
 
@@ -128,9 +128,7 @@ func (ss *SignalingServer) connHandler(connection *websocket.Conn) error {
 	case "candidate":
 		err = ss.candidateExchangingEvent(connection, message)
 	case "leaveRoom":
-		//TODO: implement leaving the room, can be left later...
-		//because this requires many things. need to remove the user from room, remove pairing, close the RTC connection in the frontend (need to research)
-		//err = ss.leaveRoomEvent(connection)
+		err = ss.leaveEvent(connection)
 	case "roomAvailability":
 		err = ss.roomAvailabilityEvent(connection, message)
 	default:
@@ -258,8 +256,8 @@ func (ss *SignalingServer) candidateExchangingEvent(conn *websocket.Conn, data S
 // Handler for terminating a connection. (example: client closed the browser)
 // It retrieves the peer associated with the user leaving the connection,
 // and if a peer exists, it notifies the peer that the user has left by sending a "leaving" message.
-// Removes the user from the server. If no peer do nothing.
-func (ss *SignalingServer) leaveServerEvent(conn *websocket.Conn) error {
+// Removes the user from the server.
+func (ss *SignalingServer) leaveEvent(conn *websocket.Conn) error {
 	defer conn.Close()
 	peerConn := ss.PeerFromConn(conn)
 	if peerConn != nil {
@@ -268,7 +266,7 @@ func (ss *SignalingServer) leaveServerEvent(conn *websocket.Conn) error {
 		type Leaving struct {
 			Type string `json:"type"`
 		}
-		out, err := json.Marshal(Leaving{Type: "leaving"})
+		out, err := json.Marshal(Leaving{Type: "peerLeavingRoom"})
 		if err != nil {
 			return err
 		}
