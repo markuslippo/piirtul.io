@@ -103,8 +103,10 @@ function initializeWebSocket() {
 function initiation() {
     // Add ourself
     addUser(username, role);
+    send({ type: 'initiation', name: username });
+
     if (role === 'creator') {
-        send({ type: 'initiation', name: username, role: 'creator' });
+        send({ type: 'roomInitiation', name: username, role: 'creator' });
     } else if (role === 'participant') {
         if (roomOwner) {
             send({ type: 'roomAvailability', name: roomOwner });
@@ -223,7 +225,7 @@ function onPeerLeave() {
 function onRoomAvailability(success) {
     if (success) {
         console.log("Room available. Proceeding with login.");
-        send({ type: "initiation", name: username, role: "participant" });
+        send({ type: "roomInitiation", name: roomOwner, role: "participant" });
         peerUsername = roomOwner;
         addUser(peerUsername, 'creator');
     } else {
