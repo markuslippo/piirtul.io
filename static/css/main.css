@@ -75,19 +75,36 @@
 }
 
 .canvas-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
     width: 100%;
     flex-grow: 1;
-    display: flex;
-    justify-content: center;
-    align-items: center;
     background-color: #2a2d34;
 }
 
 #drawing-canvas {
-    width: 90%;
-    height: 90%;
+    margin: 30px 15px 0px 15px;
     border: 2px solid #ccc;
     border-radius: 8px;
+}
+
+.toolbar {
+    display: flex;
+    justify-content: left;
+    width: 90%;
+    padding: 10px;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    color: #e6e6e6;
+    font-family: Arial, sans-serif;
+}
+
+#pen-thickness, #color-picker, #clear-canvas {
+    margin-left: 5px;
+    background-color: #2a2d34;
+    color: white;
+    cursor: pointer;
 }
 
 .quit-button {
