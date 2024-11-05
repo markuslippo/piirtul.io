@@ -77,7 +77,7 @@ function initializeWebSocket() {
                 onInitiation(data.success);
                 break;
             case "roomInitiation":
-                onRoomInitiation(data.success);
+                onRoomInitiation(data.success, data.room_id, data.participants);
                 break;
             case "offer":
                 onOffer(data.offer, data.name);
@@ -104,10 +104,8 @@ function initializeWebSocket() {
 // Send the first message to the WebSocket. If room creator, send the initiation. 
 // If we are a participant, we send the roomAvailability message.
 function initiation() {
-    // Add ourself
     addUser(username, role);
     send({ type: 'initiation', name: username });
-
 }
 
 // Handles the initiation response from the server.
@@ -120,7 +118,7 @@ function onInitiation(success) {
                 send({ type: 'roomInitiation', name: username, role: 'creator' });
                 break;
             case 'participant':
-                send({ type: 'roomAvailability', name: roomID });
+                send({ type: 'roomInitiation', name: roomID, role: 'participant' });
                 break;
             default:
                 console.log("Unknown message type:", data.type);
@@ -132,14 +130,16 @@ function onInitiation(success) {
 }
 
 // Handles the room initiation response from the server.
-function onRoomInitiation(success, newRoomID) {
-    if (success === true) {
+function onRoomInitiation(success, newRoomID, participants) {
+    if (success) {
         console.log("Room initiation successful");
         roomID = newRoomID
         setupPeerConnection();
-        
-        // Here if we have the peerUsername, we are the participant, and should open a datachannel and send the offer.
-        if (peerUsername) {
+        if (role === "participant") {
+            // This is currently for 1 to 1
+            peerUsername = participants[0]
+            addUser(peerUsername, 'creator');
+
             var dataChannelOptions = { reliable: true };
             dataChannel = peerConnection.createDataChannel(peerUsername + "-dataChannel", dataChannelOptions);
             openDataChannel();
@@ -154,9 +154,31 @@ function onRoomInitiation(success, newRoomID) {
             .catch(function (error) {
                 console.log("Error creating or setting offer:", error);
             });
+
+            // this doesnt work yet maybe a start for n to n
+            /* participants.forEach(peer => {
+                peerUsername = peer;
+                addUser(peer, 'boss');
+                var dataChannelOptions = { reliable: true };
+                dataChannel = peerConnection.createDataChannel(peerUsername + "-dataChannel", dataChannelOptions);
+                openDataChannel();
+    
+                peerConnection.createOffer()
+                .then(function (offer) {
+                    return peerConnection.setLocalDescription(offer);
+                })
+                .then(function () {
+                    send({ type: "offer", name: peerUsername, offer: peerConnection.localDescription });
+                })
+                .catch(function (error) {
+                    console.log("Error creating or setting offer:", error);
+                });
+            }); */
         }
     } else {
-        console.log("Server: Initiation failed");
+        alert("Room not available. Please try again!");
+        socket.close();
+        window.location.href = '/';
     }
 }
 
@@ -238,20 +260,6 @@ function onPeerLeave() {
         dataChannel = null;
     }
     setupPeerConnection();
-}
-
-// Handle the room availability response. If room exists, send initiation. Only participant executes this code.
-function onRoomAvailability(success) {
-    if (success) {
-        console.log("Room available. Proceeding with login.");
-        send({ type: "roomInitiation", name: roomID, role: "participant" });
-        peerUsername = roomID;
-        addUser(peerUsername, 'creator');
-    } else {
-        alert("Room not found. Please check the room owner's name.");
-        socket.close();
-        window.location.href = '/';
-    }
 }
 
 // Handle sending messages via the WebRTC data channel
