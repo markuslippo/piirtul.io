@@ -11,9 +11,9 @@ async function animateLogo() {
         const elementDuration = parseFloat(path.dataset.duration) || duration;
 
         if (path.tagName === 'ellipse') {
-            await new Promise(resolve => setTimeout(resolve, elementDuration * 300));
+            await new Promise(resolve => setTimeout(resolve, elementDuration * 100));
             path.style.fill = '#FFFFFF'; 
-            await new Promise(resolve => setTimeout(resolve, 300));
+            await new Promise(resolve => setTimeout(resolve, 100));
         } else {
             let length = path.getTotalLength();
             path.style.strokeDasharray = length;
@@ -24,7 +24,7 @@ async function animateLogo() {
                 { strokeDashoffset: length },
                 { strokeDashoffset: 0 }
             ], {
-                duration: elementDuration * 1000,
+                duration: elementDuration * 300,
                 fill: 'forwards',
                 easing: 'ease-out'
             }).finished; 
