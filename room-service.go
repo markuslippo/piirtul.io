@@ -89,7 +89,7 @@ func (roomSlice *RoomSlice) Get(roomID string) (*Room, error) {
 			return room, nil
 		}
 	}
-	return nil, nil
+	return nil, errors.New("no room found")
 }
 
 // Gets the first room with the user.
@@ -97,8 +97,7 @@ func (roomSlice *RoomSlice) GetFirstRoomWithUser(user *User) (*Room, error) {
 	for i := 0; i < len(roomSlice.rooms); i++ {
 		room := roomSlice.rooms[i]
 		for j := 0; j < len(room.Users); j++ {
-			user := room.Users[j]
-			if user == user {
+			if user == room.Users[j] {
 				return room, nil
 			}
 		}
@@ -108,6 +107,9 @@ func (roomSlice *RoomSlice) GetFirstRoomWithUser(user *User) (*Room, error) {
 
 // Joins a room.
 func (roomSlice *RoomSlice) Join(roomID string, user *User) error {
+	if user == nil {
+		return errors.New("user is nil")
+	}
 	room, err := roomSlice.Get(roomID)
 	if err != nil {
 		return err

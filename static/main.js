@@ -19,11 +19,13 @@ const sendMessageButton = document.querySelector('#send-message');
 const messageInput = document.querySelector('#chat-input');
 const chatArea = document.querySelector('#chat-messages');
 const usersList = document.getElementById('user-list');
+const roomIDBanner = document.getElementById('room-id');
 const roomStatus = document.getElementById('room-status');
 const quitButton = document.querySelector('.quit-button')
 
 // Our current user's name and the room owner's name
 let username;
+//let roomOwner;
 let roomID;
 let role;
 
@@ -43,11 +45,22 @@ window.addEventListener('DOMContentLoaded', () => {
         localStorage.removeItem('user');
         role = user.role;
         username = user.name;
-        roomID = user.roomOwner || null;
+        roomID = user.roomID || null;
+        //roomOwner = user.roomOwner || null;
         initializeWebSocket();
     }
 });
 
+function generateRoomID(length) {
+    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    let result = '';
+    for (let i = 0; i < length; i++) {
+      const randomIndex = Math.floor(Math.random() * characters.length);
+      result += characters[randomIndex];
+    }
+    return result;
+  }
+  
 // Sends a message to the WebSocket, if it is open
 function send(message) {
     if(socket && socket.readyState === WebSocket.OPEN) {
@@ -61,7 +74,7 @@ function initializeWebSocket() {
     socket = new WebSocket('ws://localhost:9090/websocket');
     socket.onopen = () => {
         console.log("Connected to signaling server WebSocket.");
-        initiation();
+        initiateUser();
     };
 
     socket.onerror = (err) => {
@@ -91,9 +104,6 @@ function initializeWebSocket() {
             case "peerLeavingRoom":
                 onPeerLeave();
                 break;
-            case "roomAvailability":
-                onRoomAvailability(data.success);
-                break;
             default:
                 console.log("Unknown message type:", data.type);
                 break;
@@ -103,9 +113,9 @@ function initializeWebSocket() {
 
 // Send the first message to the WebSocket. If room creator, send the initiation. 
 // If we are a participant, we send the roomAvailability message.
-function initiation() {
+function initiateUser() {
     addUser(username, role);
-    send({ type: 'initiation', name: username });
+    send({type: 'initiation', name: username });
 }
 
 // Handles the initiation response from the server.
@@ -115,10 +125,11 @@ function onInitiation(success) {
 
         switch(role) {
             case 'creator':
-                send({ type: 'roomInitiation', name: username, role: 'creator' });
+                roomID = generateRoomID(4);
+                send({ type: 'roomInitiation', room_id: roomID, name: username, role: 'creator' });
                 break;
             case 'participant':
-                send({ type: 'roomInitiation', name: roomID, role: 'participant' });
+                send({ type: 'roomInitiation', room_id: roomID, name: username, role: 'participant' });
                 break;
             default:
                 console.log("Unknown message type:", data.type);
@@ -134,6 +145,7 @@ function onRoomInitiation(success, newRoomID, participants) {
     if (success) {
         console.log("Room initiation successful");
         roomID = newRoomID
+        roomIDBanner.innerHTML += roomID;
         setupPeerConnection();
         if (role === "participant") {
             // This is currently for 1 to 1

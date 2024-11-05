@@ -32,6 +32,7 @@ type Candidate struct {
 // SignalMessage template to establish connection
 type SignalMessage struct {
 	Type      string     `json:"type,omitempty"`
+	RoomID    string     `json:"room_id,omitempty"`
 	Name      string     `json:"name,omitempty"`
 	Offer     *Offer     `json:"offer,omitempty"`
 	Answer    *Answer    `json:"answer,omitempty"`
@@ -103,7 +104,7 @@ func (ss *SignalingServer) connHandler(connection *websocket.Conn) error {
 	if err != nil {
 		return err
 	}
-
+	
 	// Convert JSON to SignalMessage Struct data with Unmarshal.
 	err = json.Unmarshal(raw, &message)
 	if err != nil {
@@ -118,7 +119,7 @@ func (ss *SignalingServer) connHandler(connection *websocket.Conn) error {
 		}
 		return nil
 	}
-
+	
 	// Handle different message types
 	switch message.Type {
 	case "initiation":
@@ -360,13 +361,13 @@ func (ss *SignalingServer) roomInitiationEvent(conn *websocket.Conn, data Signal
 
 	switch data.Role {
 	case "creator":
-		_, err := ss.rooms.Create(user, data.Name)
+		_, err := ss.rooms.Create(user, data.RoomID)
 		if err != nil {
 			return err
 		}
 		log.Println(fmt.Sprintf("Created a room with user '%s'", user.Name))
 	case "participant":
-		err := ss.rooms.Join(data.Name, user)
+		err := ss.rooms.Join(data.RoomID, user)
 		if err != nil {
 			return err
 		}

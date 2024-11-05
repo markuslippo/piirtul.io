@@ -19,9 +19,9 @@ createRoomButton.addEventListener("click", function() {
 joinRoomButton.addEventListener("click", function() {
     username = nameInput.value;
     if (username.length > 0) {
-        roomOwner = prompt("Enter the room owner's name:");
-        if (roomOwner) {
-            const user = { role: 'participant', name: username, roomOwner: roomOwner };
+        roomID = prompt("Enter the roomID:");
+        if (roomID) {
+            const user = { role: 'participant', name: username, roomID: roomID.toUpperCase() };
             localStorage.setItem('user', JSON.stringify(user));
             window.location.href = '/room';
         }
