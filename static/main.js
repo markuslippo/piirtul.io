@@ -331,3 +331,56 @@ quitButton.addEventListener('click', () => {
     socket.close();
     window.location.href = '/'
 })
+
+function speakUserName(name) {
+    const utterance = new SpeechSynthesisUtterance(name);
+    speechSynthesis.speak(utterance);
+}
+
+function speakMessage(message) {
+    const utterance = new SpeechSynthesisUtterance(message);
+    speechSynthesis.speak(utterance);
+}
+
+// Drawing
+
+const canvas = document.getElementById('drawing-canvas');
+const ctx = canvas.getContext('2d');
+
+let isDrawing = false;
+let penColor = '#fcfafa';
+let penThickness = 2;
+
+const thicknessSelect = document.getElementById('pen-thickness');
+const colorPicker = document.getElementById('color-picker');
+
+colorPicker.addEventListener('input', (e) => penColor = e.target.value);
+thicknessSelect.addEventListener('change', (e) => penThickness = parseInt(e.target.value));
+
+canvas.width = canvas.parentElement.clientWidth * 0.9;
+canvas.height = canvas.parentElement.clientHeight * 0.9;
+
+canvas.addEventListener('mousedown', (e) => {
+    isDrawing = true;
+    ctx.beginPath();
+    ctx.moveTo(e.offsetX, e.offsetY);
+    ctx.strokeStyle = penColor;
+    ctx.lineWidth = penThickness;
+    ctx.lineCap = 'round';
+});
+
+canvas.addEventListener('mousemove', (e) => {
+    if (isDrawing) {
+        ctx.lineTo(e.offsetX, e.offsetY);
+        ctx.stroke();
+    }
+});
+
+canvas.addEventListener('mouseup', () => isDrawing = false);
+canvas.addEventListener('mouseleave', () => isDrawing = false);
+
+const clearCanvasButton = document.getElementById('clear-canvas');
+
+clearCanvasButton.addEventListener('click', () => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+});
