@@ -123,6 +123,8 @@ func (ss *SignalingServer) connHandler(connection *websocket.Conn) error {
 	switch message.Type {
 	case "initiation":
 		err = ss.initiationEvent(connection, message)
+	case "roomInitiation":
+		err = ss.roomInitiationEvent(connection, message)
 	case "offer":
 		err = ss.offerConnectionEvent(connection, message)
 	case "answer":
