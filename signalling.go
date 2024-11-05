@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log"
 
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
@@ -232,22 +234,37 @@ func (ss *SignalingServer) candidateExchangingEvent(conn *websocket.Conn, data S
 	if candidateSender == nil {
 		return errors.New("the candidate sender does not exist")
 	}
-
-	candidateReceiver := ss.UserFromName(data.Name)
-	if candidateReceiver == nil {
-		return errors.New("the candidate receiver does not exist")
-	}
-
-	sm.Candidate = data.Candidate
-	sm.Type = "candidate"
-	out, err := json.Marshal(sm)
+	room, err := ss.rooms.GetFirstRoomWithUser(candidateSender)
 	if err != nil {
 		return err
 	}
-	// Forward the candidate
-	err = candidateReceiver.Conn.WriteMessage(websocket.TextMessage, out)
-	if err != nil {
-		return err
+	log.Println(fmt.Sprintf("Found room with id '%s' whre user '%s' is in", room.ID, candidateSender.Name))
+
+	for i := 0; i < len(room.Users); i++ {
+		var user = room.Users[i]
+		if user == candidateSender {
+			continue
+		}
+
+		candidateReceiver := ss.UserFromName(data.Name)
+		if candidateReceiver == nil {
+			return errors.New("the candidate receiver does not exist")
+		}
+
+		sm.Candidate = data.Candidate
+		sm.Type = "candidate"
+		out, err := json.Marshal(sm)
+		if err != nil {
+			return err
+		}
+
+		// Forward the candidate
+		err = candidateReceiver.Conn.WriteMessage(websocket.TextMessage, out)
+		if err != nil {
+			return err
+		}
+
+		log.Println(fmt.Sprintf("Sent message '%s' from '%s' to reciever '%s'", room.ID, candidateSender.Name, candidateReceiver.Name))
 	}
 
 	return nil
@@ -298,33 +315,14 @@ func (ss *SignalingServer) leaveEvent(conn *websocket.Conn) error {
 
 // The initiationEvent handler. Given a connection and a SignalMessage containing the role,
 // we add the user and create a room if necessary.
-// TODO: add room logic
 func (ss *SignalingServer) initiationEvent(conn *websocket.Conn, data SignalMessage) error {
+	log.Println(fmt.Sprintf("Initiation event name '%s'", data.Name))
 	user := ss.UserFromName(data.Name)
-	// No need to initiate twice if already exists
 	if user != nil {
 		return nil
 	}
 
-	// Is the client a room creator or participant?
-	switch data.Role {
-	case "creator":
-		ss.AddUser(conn, data.Name)
-		// TODO: room logic
-	case "participant":
-		ss.AddUser(conn, data.Name)
-	default:
-		// Invalid role so respond with an invalid role error
-		response, err := json.Marshal(Response{Type: "error", Success: false, Message: "Invalid role"})
-		if err != nil {
-			return err
-		}
-		err = conn.WriteMessage(websocket.TextMessage, response)
-		if err != nil {
-			return err
-		}
-		return nil
-	}
+	ss.AddUser(conn, data.Name)
 
 	//Write the response
 	out, err := json.Marshal(Response{Type: "initiation", Success: true})
@@ -340,15 +338,73 @@ func (ss *SignalingServer) initiationEvent(conn *websocket.Conn, data SignalMess
 	return nil
 }
 
+// The room initiation event handler.
+func (ss *SignalingServer) roomInitiationEvent(conn *websocket.Conn, data SignalMessage) error {
+	user := ss.UserFromConn(conn)
+	if user == nil {
+		return errors.New("user does not exist yet")
+	}
+
+	switch data.Role {
+	case "creator":
+		_, err := ss.rooms.Create(user, data.Name)
+		if err != nil {
+			return err
+		}
+		log.Println(fmt.Sprintf("Created a room with user '%s'", user.Name))
+	case "participant":
+		err := ss.rooms.Join(data.Name, user)
+		if err != nil {
+			return err
+		}
+		log.Println(fmt.Sprintf("Added user '%s' to room with id '%s'", user.Name, data.Name))
+	default:
+		response, err := json.Marshal(Response{Type: "error", Success: false, Message: "Invalid role"})
+		if err != nil {
+			return err
+		}
+		err = conn.WriteMessage(websocket.TextMessage, response)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	room, err := ss.rooms.GetFirstRoomWithUser(user)
+	if err != nil {
+		return err
+	}
+	if room == nil {
+		return errors.New("could not find room")
+	}
+
+	//Write the response
+	out, err := json.Marshal(Response{Type: "initiation", Success: true, Message: room.ID})
+	if err != nil {
+		return err
+	}
+
+	err = conn.WriteMessage(websocket.TextMessage, out)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // Handler that checks whether a room exists with the given roomCode.
 func (ss *SignalingServer) roomAvailabilityEvent(conn *websocket.Conn, data SignalMessage) error {
-	//TODO: Currently, roomCode == owner name. No room implementation yet but should be easy to change to UserFromRoom etc
+	log.Println(fmt.Sprintf("Room availability '%s'", data.Name))
 	owner := ss.UserFromName(data.Name)
+	room, err := ss.rooms.Get(owner.Name)
+
 	var response Response
 	response.Type = "roomAvailability"
-	if owner != nil {
+	if room != nil {
+		log.Println(fmt.Sprintf("Found room with id '%s' for user '%s'", owner.Name, data.Name))
 		response.Success = true
 	} else {
+		log.Println(fmt.Sprintf("Could not find room with id '%s' for user '%s'", owner.Name, data.Name))
 		response.Success = false
 	}
 

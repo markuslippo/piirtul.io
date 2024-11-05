@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"errors"
 )
 
 // Context room service key.
@@ -9,16 +9,24 @@ const ContextVariableName string = "room-service-key"
 
 // Room data representation.
 type Room struct {
-	ID string `json:"room_id"`
+	ID    string `json:"room_id"`
+	Admin *User
+	Users []*User
 }
 
 // Interface for room operations.
 type RoomDatabase interface {
 	// Creates a new room for a user and returns it.
-	Create(user *User) (*Room, error)
+	Create(user *User, roomID string) (*Room, error)
 
 	// Gets a room.
 	Get(roomID string) (*Room, error)
+
+	// Gets the first room with the user.
+	GetFirstRoomWithUser(user *User) (*Room, error)
+
+	// Joins a room.
+	Join(roomID string, user *User) error
 
 	// Clears all rooms.
 	Clear() error
@@ -30,13 +38,23 @@ type RoomService struct {
 }
 
 // Creates a new room for a user and returns it.
-func (roomService *RoomService) Create(user *User) (*Room, error) {
-	return roomService.DB.Create(user)
+func (roomService *RoomService) Create(user *User, roomID string) (*Room, error) {
+	return roomService.DB.Create(user, roomID)
 }
 
 // Gets a room.
 func (roomService *RoomService) Get(roomID string) (*Room, error) {
 	return roomService.DB.Get(roomID)
+}
+
+// Gets the first room with the user.
+func (roomService *RoomService) GetFirstRoomWithUser(user *User) (*Room, error) {
+	return roomService.DB.GetFirstRoomWithUser(user)
+}
+
+// Joins a room.
+func (roomService *RoomService) Join(roomID string, user *User) error {
+	return roomService.DB.Join(roomID, user)
 }
 
 // Clears all rooms.
@@ -50,9 +68,14 @@ type RoomSlice struct {
 }
 
 // Creates a new room for a user and returns it.
-func (roomSlice *RoomSlice) Create(user *User) (*Room, error) {
+func (roomSlice *RoomSlice) Create(user *User, roomID string) (*Room, error) {
+	if user == nil {
+		return nil, errors.New("user is nil")
+	}
 	room := &Room{
-		ID: user.Name,
+		ID:    roomID,
+		Admin: user,
+		Users: []*User{user},
 	}
 	roomSlice.rooms = append(roomSlice.rooms, room)
 	return room, nil
@@ -66,7 +89,35 @@ func (roomSlice *RoomSlice) Get(roomID string) (*Room, error) {
 			return room, nil
 		}
 	}
-	return nil, fmt.Errorf("could not find room with id: %s", roomID)
+	return nil, nil
+}
+
+// Gets the first room with the user.
+func (roomSlice *RoomSlice) GetFirstRoomWithUser(user *User) (*Room, error) {
+	for i := 0; i < len(roomSlice.rooms); i++ {
+		room := roomSlice.rooms[i]
+		for j := 0; j < len(room.Users); j++ {
+			user := room.Users[j]
+			if user == user {
+				return room, nil
+			}
+		}
+	}
+	return nil, nil
+}
+
+// Joins a room.
+func (roomSlice *RoomSlice) Join(roomID string, user *User) error {
+	room, err := roomSlice.Get(roomID)
+	if err != nil {
+		return err
+	}
+	if room == nil {
+		return errors.New("no room found")
+	}
+
+	room.Users = append(room.Users, user)
+	return nil
 }
 
 // Clears all rooms.

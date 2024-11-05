@@ -39,7 +39,7 @@ func main() {
 		users: []*User{},
 		rooms: &RoomService{
 			DB: &RoomSlice{
-				rooms: []*Room{},
+				rooms: make([]*Room, 0),
 			},
 		},
 		upgrader: websocket.Upgrader{
