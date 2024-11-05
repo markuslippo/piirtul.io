@@ -24,7 +24,7 @@ const quitButton = document.querySelector('.quit-button')
 
 // Our current user's name and the room owner's name
 let username;
-let roomOwner;
+let roomID;
 let role;
 
 // The array containing the participants of this room.
@@ -43,7 +43,7 @@ window.addEventListener('DOMContentLoaded', () => {
         localStorage.removeItem('user');
         role = user.role;
         username = user.name;
-        roomOwner = user.roomOwner || null;
+        roomID = user.roomOwner || null;
         initializeWebSocket();
     }
 });
@@ -76,6 +76,9 @@ function initializeWebSocket() {
             case "initiation":
                 onInitiation(data.success);
                 break;
+            case "roomInitiation":
+                onRoomInitiation(data.success);
+                break;
             case "offer":
                 onOffer(data.offer, data.name);
                 break;
@@ -105,20 +108,36 @@ function initiation() {
     addUser(username, role);
     send({ type: 'initiation', name: username });
 
-    if (role === 'creator') {
-        send({ type: 'roomInitiation', name: username, role: 'creator' });
-    } else if (role === 'participant') {
-        if (roomOwner) {
-            send({ type: 'roomAvailability', name: roomOwner });
-        }
-    }
 }
 
 // Handles the initiation response from the server.
 function onInitiation(success) {
     if (success === true) {
         console.log("Initiation successful");
+
+        switch(role) {
+            case 'creator':
+                send({ type: 'roomInitiation', name: username, role: 'creator' });
+                break;
+            case 'participant':
+                send({ type: 'roomAvailability', name: roomID });
+                break;
+            default:
+                console.log("Unknown message type:", data.type);
+                break;
+        }
+    } else {
+        console.log("Server: Initiation failed");
+    }
+}
+
+// Handles the room initiation response from the server.
+function onRoomInitiation(success, newRoomID) {
+    if (success === true) {
+        console.log("Room initiation successful");
+        roomID = newRoomID
         setupPeerConnection();
+        
         // Here if we have the peerUsername, we are the participant, and should open a datachannel and send the offer.
         if (peerUsername) {
             var dataChannelOptions = { reliable: true };
@@ -225,8 +244,8 @@ function onPeerLeave() {
 function onRoomAvailability(success) {
     if (success) {
         console.log("Room available. Proceeding with login.");
-        send({ type: "roomInitiation", name: roomOwner, role: "participant" });
-        peerUsername = roomOwner;
+        send({ type: "roomInitiation", name: roomID, role: "participant" });
+        peerUsername = roomID;
         addUser(peerUsername, 'creator');
     } else {
         alert("Room not found. Please check the room owner's name.");

@@ -381,7 +381,7 @@ func (ss *SignalingServer) roomInitiationEvent(conn *websocket.Conn, data Signal
 	}
 
 	//Write the response
-	out, err := json.Marshal(Response{Type: "initiation", Success: true, Message: room.ID})
+	out, err := json.Marshal(Response{Type: "roomInitiation", Success: true, Message: room.ID})
 	if err != nil {
 		return err
 	}
