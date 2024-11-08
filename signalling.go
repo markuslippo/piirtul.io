@@ -164,12 +164,6 @@ func (ss *SignalingServer) offerConnectionEvent(conn *websocket.Conn, data Signa
 		return errors.New("the offer receiver does not exist")
 	}
 
-	// Assign the offerReceiver as a peer to offerSender
-	err := ss.UpdatePeer(offerSender.Name, offerReceiver.Name)
-	if err != nil {
-		return err
-	}
-
 	sm.Name = offerSender.Name
 	sm.Offer = data.Offer
 	sm.Type = "offer"
@@ -203,12 +197,6 @@ func (ss *SignalingServer) answerConnectionEvent(conn *websocket.Conn, data Sign
 	answerReceiver := ss.UserFromName(data.Name)
 	if answerReceiver == nil {
 		return errors.New("the answer receiver does not exist")
-	}
-
-	// Assign the answerReceiver as a peer to answerSender
-	err := ss.UpdatePeer(answerSender.Name, data.Name)
-	if err != nil {
-		return err
 	}
 
 	sm.Name = answerSender.Name
@@ -280,48 +268,37 @@ func (ss *SignalingServer) candidateExchangingEvent(conn *websocket.Conn, data S
 // Removes the user from the server.
 func (ss *SignalingServer) leaveEvent(conn *websocket.Conn) error {
 	defer conn.Close()
-	peerConn := ss.PeerFromConn(conn)
-	if peerConn != nil {
 
-		leavingUser := ss.UserFromConn(conn)
-		if leavingUser == nil {
-			return errors.New("the leaving user does not exist")
-		}
+	leavingUser := ss.UserFromConn(conn)
+	if leavingUser == nil {
+		return errors.New("the leaving user does not exist")
+	}
 
-		type Leaving struct {
-			Type string `json:"type"`
-			Name string `json:"name"`
-		}
+	type Leaving struct {
+		Type string `json:"type"`
+		Name string `json:"name"`
+	}
 
-		room, err := ss.rooms.GetFirstRoomWithUser(leavingUser)
-		if err != nil {
-			return err
-		}
+	room, roomerr := ss.rooms.GetFirstRoomWithUser(leavingUser)
+	if roomerr != nil {
+		return roomerr
+	}
 
-		for _, user := range room.Users {
+	// Room.ISOwner(user) = true/False
+	for _, user := range room.Users {
+		if user.Name != leavingUser.Name {
 			var out []byte
-			out, err := json.Marshal(Leaving{Type: "peerLeavingRoom", Name: leavingUser.Name})
+			out, err := json.Marshal(Leaving{Type: "peerLeavingRoom", Name: leavingUser.Name}) // + RoomDestroy: boolean
 			if err != nil {
 				return err
 			}
 
-			// Notify the peer of the leaving user
-			err = peerConn.WriteMessage(websocket.TextMessage, out)
+			// Notify the room user of the leaving user
+			err = user.Conn.WriteMessage(websocket.TextMessage, out)
 			if err != nil {
 				return err
 			}
-
-			if user != nil {
-				// Remove the peer reference user who is left alone
-				err := ss.RemovePeerForUser(user.Name)
-				if err != nil {
-					return err
-				}
-
-			}
-
 		}
-
 	}
 
 	// Remove the user from the list of connected users
