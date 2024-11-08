@@ -406,9 +406,11 @@ func (ss *SignalingServer) roomInitiationEvent(conn *websocket.Conn, data Signal
 		return errors.New("could not find room")
 	}
 
-	participants := make([]string, len(room.Users))
-	for i, user := range room.Users {
-		participants[i] = user.Name
+	participants := []string{}
+	for _, roomUser := range room.Users {
+		if user.Name != roomUser.Name {
+			participants = append(participants, roomUser.Name)
+		}
 	}
 
 	type RoomResponse struct {

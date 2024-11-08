@@ -183,9 +183,10 @@ function onRoomInitiationResponse(success, newRoomID, participants) {
 // After both parties have their answer/offers, they start to exchange the candidates automatically.
 // Initiate connection to handle upcoming data channel event
 function setupPeerConnection(nameOfPeer) {
-    peerConnections.set(nameOfPeer, new RTCPeerConnection(configuration))
+    const peerConnection = new RTCPeerConnection(configuration);
+    peerConnections.set(nameOfPeer, peerConnection);
 
-    peerConnections.get(nameOfPeer).onicecandidate = function (event) {
+    peerConnection.onicecandidate = function (event) {
         if (event.candidate) {
             send({
                 type: "candidate",
@@ -194,9 +195,11 @@ function setupPeerConnection(nameOfPeer) {
             });
         }
     };
-    peerConnections.get(nameOfPeer).ondatachannel = function (event) {
-        dataChannels.set(nameOfPeer, event.channel)
-       openDataChannel(dataChannels.get(nameOfPeer));
+
+    peerConnection.ondatachannel = function (event) {
+        const dataChannel = event.channel;
+        dataChannels.set(nameOfPeer, dataChannel);
+        openDataChannel(dataChannel); 
     };
 }
 
@@ -205,24 +208,39 @@ function setupPeerConnection(nameOfPeer) {
 // Handles the offer message forwarded via the server.
 // This code is executed only as a Room owner.
 function onOfferResponse(offer, name) {
-    peerConnections.set(name, new RTCPeerConnection(configuration))
+    const peerConnection = new RTCPeerConnection(configuration);
+    peerConnections.set(name, peerConnection);
+
     displayRoomStatus(name + " has joined the room");
     addUser(name, 'participant');
 
-    peerConnections.get(name).setRemoteDescription(new RTCSessionDescription(offer))
-    .then(function() {
-        return peerConnections.get(name).createAnswer();
+    peerConnection.onicecandidate = function (event) {
+        if (event.candidate) {
+            send({
+                type: "candidate",
+                name: name,
+                candidate: event.candidate
+            });
+        }
+    };
+
+    // Room owner creates a data channel for the participant
+    const dataChannel = peerConnection.createDataChannel(name + "-dataChannel", { reliable: true });
+    dataChannels.set(name, dataChannel);
+    openDataChannel(dataChannel);  // Set up handlers for the new data channel
+
+    // Set up the peer connection to handle the offer
+    peerConnection.setRemoteDescription(new RTCSessionDescription(offer))
+    .then(() => peerConnection.createAnswer())
+    .then(answer => peerConnection.setLocalDescription(answer))
+    .then(() => {
+        send({ type: "answer", name: name, answer: peerConnection.localDescription });
     })
-    .then(function(answer) {
-        return peerConnections.get(name).setLocalDescription(answer);
-    })
-    .then(function() {
-        send({ type: "answer", name: name, answer: peerConnections.get(name).localDescription });
-    })
-    .catch(function(error) {
-        console.log("Error handling offer or setting descriptions:", error);
-    });
+    .catch(error => console.log("Error handling offer or setting descriptions:", error));
 }
+
+
+
 
 // Handles the answer message forwarded via the server.
 // Only for the participant.
@@ -260,6 +278,8 @@ function onPeerLeaveResponse(name) {
         channel.close();
         dataChannels.delete(name);
     }
+
+    //TODO rethink this
     setupPeerConnection();
 }
 
@@ -297,7 +317,7 @@ function openDataChannel(dataChannel) {
 // The function that sends a message to the peer.
 function sendMessage(message) {
 
-    dataChannels.forEach((name, dataChannel) => {
+    dataChannels.forEach((dataChannel, name) => {
         if (dataChannel && dataChannel.readyState === 'open') {
             dataChannel.send(JSON.stringify({
                 sender: username,
@@ -354,19 +374,21 @@ function displayUsers(users) {
 quitButton.addEventListener('click', () => {
     send({ type: 'leaveRoom', name: username})
 
-    peerConnections.forEach((name, peerConnection) => {
+    peerConnections.forEach((peerConnection, name) => {
         if (peerConnection) {
             peerConnection.close();
         }
-        peerConnections.delete(name);
     });
 
-    dataChannels.forEach((name, dataChannel) => {
+    peerConnections.clear();
+
+    dataChannels.forEach((dataChannel, name) => {
         if (dataChannel) {
             dataChannel.close();
         }
-        dataChannels.delete(name);
     });
+
+    dataChannels.clear();
     
     socket.close();
     window.location.href = '/'
