@@ -7,7 +7,10 @@ window.RTCIceCandidate = window.RTCIceCandidate || window.mozRTCIceCandidate || 
 window.RTCSessionDescription = window.RTCSessionDescription || window.mozRTCSessionDescription || window.webkitRTCSessionDescription;
 
 // WebRTC connected user, the connection to peer and the data channel.
-let peerUsername, peerConnection, dataChannel;
+
+let peerConnections = new Map();
+// { name -> connection }
+let dataChannels = new Map();
 
 // ICE server
 const configuration = {
@@ -87,22 +90,22 @@ function initializeWebSocket() {
         var data = JSON.parse(message.data);
         switch(data.type) {
             case "initiation":
-                onInitiation(data.success);
+                onInitiationResponse(data.success);
                 break;
             case "roomInitiation":
-                onRoomInitiation(data.success, data.room_id, data.participants);
+                onRoomInitiationResponse(data.success, data.room_id, data.participants);
                 break;
             case "offer":
-                onOffer(data.offer, data.name);
+                onOfferResponse(data.offer, data.name);
                 break;
             case "answer":
-                onAnswer(data.answer);
+                onAnswerResponse(data.answer, data.name);
                 break;
             case "candidate":
-                onCandidate(data.candidate);
+                onCandidateResponse(data.candidate, data.name);
                 break;
             case "peerLeavingRoom":
-                onPeerLeave();
+                onPeerLeaveResponse(data.name);
                 break;
             default:
                 console.log("Unknown message type:", data.type);
@@ -119,7 +122,7 @@ function initiateUser() {
 }
 
 // Handles the initiation response from the server.
-function onInitiation(success) {
+function onInitiationResponse(success) {
     if (success === true) {
         console.log("Initiation successful");
 
@@ -140,52 +143,33 @@ function onInitiation(success) {
     }
 }
 
-// Handles the room initiation response from the server.
-function onRoomInitiation(success, newRoomID, participants) {
+// Handles the room initiation response from the server. 
+function onRoomInitiationResponse(success, newRoomID, participants) {
     if (success) {
         console.log("Room initiation successful");
         roomID = newRoomID
         roomIDBanner.innerHTML += roomID;
-        setupPeerConnection();
+
         if (role === "participant") {
-            // This is currently for 1 to 1
-            peerUsername = participants[0]
-            addUser(peerUsername, 'creator');
-
-            var dataChannelOptions = { reliable: true };
-            dataChannel = peerConnection.createDataChannel(peerUsername + "-dataChannel", dataChannelOptions);
-            openDataChannel();
-
-            peerConnection.createOffer()
-            .then(function (offer) {
-                return peerConnection.setLocalDescription(offer);
-            })
-            .then(function () {
-                send({ type: "offer", name: peerUsername, offer: peerConnection.localDescription });
-            })
-            .catch(function (error) {
-                console.log("Error creating or setting offer:", error);
-            });
-
-            // this doesnt work yet maybe a start for n to n
-            /* participants.forEach(peer => {
-                peerUsername = peer;
-                addUser(peer, 'boss');
+            participants.forEach(name => {
+                setupPeerConnection(name);
+                addUser(name, 'participant');
                 var dataChannelOptions = { reliable: true };
-                dataChannel = peerConnection.createDataChannel(peerUsername + "-dataChannel", dataChannelOptions);
-                openDataChannel();
-    
-                peerConnection.createOffer()
-                .then(function (offer) {
-                    return peerConnection.setLocalDescription(offer);
-                })
-                .then(function () {
-                    send({ type: "offer", name: peerUsername, offer: peerConnection.localDescription });
-                })
-                .catch(function (error) {
-                    console.log("Error creating or setting offer:", error);
-                });
-            }); */
+                dataChannels.set(name, peerConnections.get(name).createDataChannel(name + "-dataChannel", dataChannelOptions))
+                openDataChannel(dataChannels.get(name));
+
+                peerConnections.get(name).createOffer()
+                    .then(function (offer) {
+                        return peerConnections.get(name).setLocalDescription(offer);
+                    })
+                    .then(function () {
+                        send({ type: "offer", name: name, offer: peerConnections.get(name).localDescription });
+                    })
+                    .catch(function (error) {
+                        console.log("Error creating or setting offer:", error);
+                    });
+                
+            });
         }
     } else {
         alert("Room not available. Please try again!");
@@ -198,39 +182,42 @@ function onRoomInitiation(success, newRoomID, participants) {
 // Initiate connection to handle upcoming ICE candidate event.
 // After both parties have their answer/offers, they start to exchange the candidates automatically.
 // Initiate connection to handle upcoming data channel event
-function setupPeerConnection() {
-    peerConnection = new RTCPeerConnection(configuration);
-    peerConnection.onicecandidate = function (event) {
+function setupPeerConnection(nameOfPeer) {
+    peerConnections.set(nameOfPeer, new RTCPeerConnection(configuration))
+
+    peerConnections.get(nameOfPeer).onicecandidate = function (event) {
         if (event.candidate) {
             send({
                 type: "candidate",
-                name: peerUsername,
+                name: nameOfPeer,
                 candidate: event.candidate
             });
         }
     };
-    peerConnection.ondatachannel = function (event) {
-        dataChannel = event.channel;
-        openDataChannel();
+    peerConnections.get(nameOfPeer).ondatachannel = function (event) {
+        dataChannels.set(nameOfPeer, event.channel)
+       openDataChannel(dataChannels.get(nameOfPeer));
     };
 }
 
+
+
 // Handles the offer message forwarded via the server.
 // This code is executed only as a Room owner.
-function onOffer(offer, name) {
-    peerUsername = name;
-    displayRoomStatus(peerUsername + " has joined the room");
-    addUser(peerUsername, 'participant');
+function onOfferResponse(offer, name) {
+    peerConnections.set(name, new RTCPeerConnection(configuration))
+    displayRoomStatus(name + " has joined the room");
+    addUser(name, 'participant');
 
-    peerConnection.setRemoteDescription(new RTCSessionDescription(offer))
+    peerConnections.get(name).setRemoteDescription(new RTCSessionDescription(offer))
     .then(function() {
-        return peerConnection.createAnswer();
+        return peerConnections.get(name).createAnswer();
     })
     .then(function(answer) {
-        return peerConnection.setLocalDescription(answer);
+        return peerConnections.get(name).setLocalDescription(answer);
     })
     .then(function() {
-        send({ type: "answer", name: peerUsername, answer: peerConnection.localDescription });
+        send({ type: "answer", name: name, answer: peerConnections.get(name).localDescription });
     })
     .catch(function(error) {
         console.log("Error handling offer or setting descriptions:", error);
@@ -239,14 +226,14 @@ function onOffer(offer, name) {
 
 // Handles the answer message forwarded via the server.
 // Only for the participant.
-function onAnswer(answer) {
-    peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
-    displayRoomStatus(username + " has joined the room");
+function onAnswerResponse(answer, name) {
+    peerConnections.get(name).setRemoteDescription(new RTCSessionDescription(answer));
+    displayRoomStatus(name + " has joined the room");
 }
 
 // The function that handles the candidate message forwarded via the server.
-function onCandidate(candidate) {
-    peerConnection.addIceCandidate(new RTCIceCandidate(candidate))
+function onCandidateResponse(candidate, name) {
+    peerConnections.get(name).addIceCandidate(new RTCIceCandidate(candidate))
     .then(function() {
         console.log("ICE candidate successfully added");
     })
@@ -257,19 +244,21 @@ function onCandidate(candidate) {
 
 // The function that handles leaving the WebRTC connection.
 // We also have to initialize the peer connection again.
-function onPeerLeave() {
+function onPeerLeaveResponse(name) {
     console.log("Peer closed connection");
-    displayRoomStatus(peerUsername + ' has left the room');
-    removeUser(peerUsername);
-    peerUsername = null;
+    displayRoomStatus(name + ' has left the room');
+    removeUser(name);
     
-    if (peerConnection) {
-        peerConnection.close();
-        peerConnection = null;
+    peerConn = peerConnections.get(name);
+    channel = dataChannels.get(name);
+
+    if (peerConn != undefined) {
+        peerConn.close();
+        peerConnections.delete(name);
     }
-    if (dataChannel) {
-        dataChannel.close();
-        dataChannel = null;
+    if (channel != undefined) {
+        channel.close();
+        dataChannels.delete(name);
     }
     setupPeerConnection();
 }
@@ -285,7 +274,7 @@ sendMessageButton.addEventListener("click", function() {
 });
 
 // Open the WebRTC data channel
-function openDataChannel() {
+function openDataChannel(dataChannel) {
     dataChannel.onerror = function (error) {
         console.log("Data Channel Error:", error);
     };
@@ -307,14 +296,17 @@ function openDataChannel() {
 
 // The function that sends a message to the peer.
 function sendMessage(message) {
-    if (dataChannel && dataChannel.readyState === 'open') {
-        dataChannel.send(JSON.stringify({
-            sender: username,
-            message: message
-        }));
-    } else {
-        console.log("Data channel is not open. Unable to send message.");
-    }
+
+    dataChannels.forEach((name, dataChannel) => {
+        if (dataChannel && dataChannel.readyState === 'open') {
+            dataChannel.send(JSON.stringify({
+                sender: username,
+                message: message
+            }));
+        } else {
+            console.log("Data channel is not open. Unable to send message.");
+        }
+    });   
 }
 
 // Display sent and received messages.
@@ -361,14 +353,21 @@ function displayUsers(users) {
 
 quitButton.addEventListener('click', () => {
     send({ type: 'leaveRoom', name: username})
-    if (peerConnection) {
-        peerConnection.close();
-        peerConnection = null;
-    }
-    if (dataChannel) {
-        dataChannel.close();
-        dataChannel = null;
-    }
+
+    peerConnections.forEach((name, peerConnection) => {
+        if (peerConnection) {
+            peerConnection.close();
+        }
+        peerConnections.delete(name);
+    });
+
+    dataChannels.forEach((name, dataChannel) => {
+        if (dataChannel) {
+            dataChannel.close();
+        }
+        dataChannels.delete(name);
+    });
+    
     socket.close();
     window.location.href = '/'
 })

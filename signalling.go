@@ -104,7 +104,7 @@ func (ss *SignalingServer) connHandler(connection *websocket.Conn) error {
 	if err != nil {
 		return err
 	}
-	
+
 	// Convert JSON to SignalMessage Struct data with Unmarshal.
 	err = json.Unmarshal(raw, &message)
 	if err != nil {
@@ -119,7 +119,7 @@ func (ss *SignalingServer) connHandler(connection *websocket.Conn) error {
 		}
 		return nil
 	}
-	
+
 	// Handle different message types
 	switch message.Type {
 	case "initiation":
@@ -211,6 +211,7 @@ func (ss *SignalingServer) answerConnectionEvent(conn *websocket.Conn, data Sign
 		return err
 	}
 
+	sm.Name = answerSender.Name
 	sm.Answer = data.Answer
 	sm.Type = "answer"
 	out, err := json.Marshal(sm)
@@ -253,6 +254,7 @@ func (ss *SignalingServer) candidateExchangingEvent(conn *websocket.Conn, data S
 			return errors.New("the candidate receiver does not exist")
 		}
 
+		sm.Name = candidateSender.Name
 		sm.Candidate = data.Candidate
 		sm.Type = "candidate"
 		out, err := json.Marshal(sm)
@@ -280,30 +282,46 @@ func (ss *SignalingServer) leaveEvent(conn *websocket.Conn) error {
 	defer conn.Close()
 	peerConn := ss.PeerFromConn(conn)
 	if peerConn != nil {
-		var out []byte
+
+		leavingUser := ss.UserFromConn(conn)
+		if leavingUser == nil {
+			return errors.New("the leaving user does not exist")
+		}
 
 		type Leaving struct {
 			Type string `json:"type"`
+			Name string `json:"name"`
 		}
-		out, err := json.Marshal(Leaving{Type: "peerLeavingRoom"})
+
+		room, err := ss.rooms.GetFirstRoomWithUser(leavingUser)
 		if err != nil {
 			return err
 		}
 
-		// Notify the peer of the leaving user
-		err = peerConn.WriteMessage(websocket.TextMessage, out)
-		if err != nil {
-			return err
-		}
-
-		user := ss.UserFromConn(conn)
-		if user != nil {
-			// Remove the peer reference user who is left alone
-			err := ss.RemovePeerForUser(user.Name)
+		for _, user := range room.Users {
+			var out []byte
+			out, err := json.Marshal(Leaving{Type: "peerLeavingRoom", Name: leavingUser.Name})
 			if err != nil {
 				return err
 			}
+
+			// Notify the peer of the leaving user
+			err = peerConn.WriteMessage(websocket.TextMessage, out)
+			if err != nil {
+				return err
+			}
+
+			if user != nil {
+				// Remove the peer reference user who is left alone
+				err := ss.RemovePeerForUser(user.Name)
+				if err != nil {
+					return err
+				}
+
+			}
+
 		}
+
 	}
 
 	// Remove the user from the list of connected users
