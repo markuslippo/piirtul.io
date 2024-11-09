@@ -271,24 +271,35 @@ func (ss *SignalingServer) leaveEvent(conn *websocket.Conn) error {
 
 	leavingUser := ss.UserFromConn(conn)
 	if leavingUser == nil {
+		log.Println("Leaving user is nil")
 		return errors.New("the leaving user does not exist")
-	}
-
-	type Leaving struct {
-		Type string `json:"type"`
-		Name string `json:"name"`
 	}
 
 	room, roomerr := ss.rooms.GetFirstRoomWithUser(leavingUser)
 	if roomerr != nil {
+		log.Printf("Error finding room for user %s: %v", leavingUser.Name, roomerr)
 		return roomerr
 	}
+	if room == nil {
+		log.Printf("Room not found for user %s", leavingUser.Name)
+		return errors.New("the room does not exist")
+	}
 
-	// Room.ISOwner(user) = true/False
+	var roomDestroyVal bool
+	if room.Owner == leavingUser {
+		roomDestroyVal = true
+	}
+
+	type Leaving struct {
+		Type       string `json:"type"`
+		Name       string `json:"name"`
+		RoomDestroy bool  `json:"room_destroy"`
+	}
+
+	// Notify all users in the room about the leaving user
 	for _, user := range room.Users {
 		if user.Name != leavingUser.Name {
-			var out []byte
-			out, err := json.Marshal(Leaving{Type: "peerLeavingRoom", Name: leavingUser.Name}) // + RoomDestroy: boolean
+			out, err := json.Marshal(Leaving{Type: "peerLeavingRoom", Name: leavingUser.Name, RoomDestroy: roomDestroyVal})
 			if err != nil {
 				return err
 			}
@@ -296,15 +307,35 @@ func (ss *SignalingServer) leaveEvent(conn *websocket.Conn) error {
 			// Notify the room user of the leaving user
 			err = user.Conn.WriteMessage(websocket.TextMessage, out)
 			if err != nil {
+				log.Printf("Failed to send message to user %s: %v", user.Name, err)
 				return err
+			}
+
+			// If leaving user was the owner, remove connections and delete the room
+			if roomDestroyVal {
+				ss.RemoveUser(user.Conn)
+				ss.rooms.RemoveUserFromRoom(room.ID, user)
 			}
 		}
 	}
 
-	// Remove the user from the list of connected users
+	// Remove the leaving user from the list of connected users
 	err := ss.RemoveUser(conn)
 	if err != nil {
+		log.Printf("Failed to remove user %s: %v", leavingUser.Name, err)
 		return err
+	}
+
+	// Remove user from the room
+	removeUserErr := ss.rooms.RemoveUserFromRoom(room.ID, leavingUser)
+	if removeUserErr != nil {
+		log.Printf("Failed to remove user %s from room %s: %v", leavingUser.Name, room.ID, removeUserErr)
+		return removeUserErr
+	}
+
+	// Delete the room if it was destroyed
+	if roomDestroyVal {
+		ss.rooms.DeleteRoom(room.ID)
 	}
 
 	return nil
@@ -316,6 +347,14 @@ func (ss *SignalingServer) initiationEvent(conn *websocket.Conn, data SignalMess
 	log.Println(fmt.Sprintf("Initiation event name '%s'", data.Name))
 	user := ss.UserFromName(data.Name)
 	if user != nil {
+		out, err := json.Marshal(Response{Type: "initiation", Success: false, Message: "User with the given name exists already"})
+		if err != nil {
+			return err
+		}
+		err = conn.WriteMessage(websocket.TextMessage, out)
+		if err != nil {
+			return err
+		}
 		return nil
 	}
 
