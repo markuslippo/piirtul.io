@@ -4,6 +4,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"text/template"
 
 	"github.com/gorilla/websocket"
@@ -53,6 +55,16 @@ func main() {
 	}
 
 	e.Static("/assets", "static")
+
+	e.GET("/assets/*", func(c echo.Context) error {
+		filePath := c.Param("*")
+	
+		if strings.HasSuffix(filePath, ".js") {
+			return c.Attachment(filepath.Join("static", filePath), "inline; filename=\""+filepath.Base(filePath)+"\"; Content-Type: text/javascript") 
+		} else {
+			return c.File(filepath.Join("static", filePath)) 
+		}
+	})
 	e.GET("/", staticRender("landing"))
 	e.GET("/initiate", initiateHandler(ss.rooms, &ss))
 	e.GET("/room", staticRender("main"))
