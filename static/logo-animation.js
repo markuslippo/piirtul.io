@@ -4,7 +4,7 @@ async function animateLogo() {
     document.getElementById('logo-container').innerHTML = svgContent;
 
     const paths = document.querySelectorAll('#piirtul-logo path, #piirtul-logo ellipse');
-    const duration = 1; // Default duration if not specified in dataset
+    const duration = 1;
 
     for (let i = 0; i < paths.length; i++) {
         const path = paths[i];
@@ -35,7 +35,7 @@ async function animateLogo() {
 
     document.getElementById('logo-container').style.marginTop = '0'; 
     document.querySelector('.room-form').style.opacity = 1; 
-    document.getElementById('demo2-content').style.opacity = 1;
+    //document.getElementById('demo2-content').style.opacity = 1;
 }
 
 window.addEventListener('load', animateLogo);

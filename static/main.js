@@ -50,6 +50,8 @@ window.addEventListener('DOMContentLoaded', () => {
         roomID = user.roomID;
         initializeWebSocket();
     }
+
+    initializeCanvasEvents();
 });
 
 function generateRoomID(length) {
@@ -307,11 +309,16 @@ sendMessageButton.addEventListener("click", function() {
 // Open the WebRTC data channel
 function openDataChannel(dataChannel) {
     dataChannel.onmessage = function (event) {
-        console.log("📩 Message received:", event.data);
         var receivedData = JSON.parse(event.data);
-        displayMessage(receivedData.sender, receivedData.message);
+        if (receivedData.type === 'drawing') {
+            drawOnCanvas(receivedData);
+        } else if (receivedData.type === "clear") {
+            clearCanvas();
+        }else if (receivedData.type === 'chat') {
+            displayMessage(receivedData.sender, receivedData.message);
+        }        
+       
     };
-
     dataChannel.onerror = function (error) {
         console.log("❌ Data Channel Error:", error);
     };
@@ -320,13 +327,16 @@ function openDataChannel(dataChannel) {
 // The function that sends a message to the peer.
 function sendMessage(message) {
 
+    const chatmessage = {
+        type: 'chat',
+        sender: username,
+        message: message
+    };
+
     dataChannels.forEach((dataChannel, name) => {
         if (dataChannel && dataChannel.readyState === 'open') {
             console.log("✅ Sent message to ", name);
-            dataChannel.send(JSON.stringify({
-                sender: username,
-                message: message
-            }));
+            dataChannel.send(JSON.stringify(chatmessage));
         } else {
             console.log("❌ Unable to send message since datachannel is not open");
         }
@@ -405,45 +415,147 @@ quitButton.addEventListener('click', () => {
     sendLeave();
 })
 
-// Drawing
 
+// Drawing
 const canvas = document.getElementById('drawing-canvas');
 const ctx = canvas.getContext('2d');
 
 let isDrawing = false;
 let penColor = '#fcfafa';
 let penThickness = 2;
+let prevX, prevY;
 
 const thicknessSelect = document.getElementById('pen-thickness');
 const colorPicker = document.getElementById('color-picker');
+const clearCanvasButton = document.getElementById('clear-canvas');
 
 colorPicker.addEventListener('input', (e) => penColor = e.target.value);
 thicknessSelect.addEventListener('change', (e) => penThickness = parseInt(e.target.value));
 
-canvas.width = canvas.parentElement.clientWidth * 0.9;
-canvas.height = canvas.parentElement.clientHeight * 0.9;
-
-canvas.addEventListener('mousedown', (e) => {
-    isDrawing = true;
-    ctx.beginPath();
-    ctx.moveTo(e.offsetX, e.offsetY);
+function resizeCanvas() {
+    const container = canvas.parentElement;
+    canvas.width = container.clientWidth * 0.9;
+    canvas.height = container.clientHeight * 0.9;
+    
+    // Reset canvas context properties after resize
     ctx.strokeStyle = penColor;
     ctx.lineWidth = penThickness;
     ctx.lineCap = 'round';
-});
+}
 
-canvas.addEventListener('mousemove', (e) => {
-    if (isDrawing) {
-        ctx.lineTo(e.offsetX, e.offsetY);
+function initializeCanvasEvents() {
+    // Add drawing events for all users (both creator and participants)
+    canvas.addEventListener('mousedown', startDrawing);
+    canvas.addEventListener('mousemove', draw);
+    canvas.addEventListener('mouseup', stopDrawing);
+    canvas.addEventListener('mouseleave', stopDrawing);
+    
+    // Touch events support
+    canvas.addEventListener('touchstart', handleTouchStart);
+    canvas.addEventListener('touchmove', handleTouchMove);
+    canvas.addEventListener('touchend', stopDrawing);
+    
+    if (clearCanvasButton) {
+        clearCanvasButton.addEventListener('click', clearCanvas);
+    }
+}
+
+function startDrawing(e) {
+    isDrawing = true;
+    const coords = getCoordinates(e);
+    prevX = coords.x;
+    prevY = coords.y;
+    
+    // Start new path
+    ctx.beginPath();
+    ctx.moveTo(prevX, prevY);
+    ctx.strokeStyle = penColor;
+    ctx.lineWidth = penThickness;
+    ctx.lineCap = 'round';
+    
+    // Prevent scrolling on touch devices
+    e.preventDefault();
+}
+
+function draw(e) {
+    if (!isDrawing) return;
+    
+    const coords = getCoordinates(e);
+    ctx.lineTo(coords.x, coords.y);
+    ctx.stroke();
+
+    const drawingData = {
+        type: 'drawing',
+        prevX: prevX,
+        prevY: prevY,
+        x: coords.x,
+        y: coords.y,
+        color: penColor,
+        thickness: penThickness
+    };
+    sendDrawingData(drawingData);
+    
+    
+    prevX = coords.x;
+    prevY = coords.y;
+    
+    e.preventDefault();
+}
+
+function stopDrawing() {
+    isDrawing = false;
+    ctx.beginPath(); // Reset the path
+}
+
+function getCoordinates(e) {
+    let x, y;
+    
+    if (e.type.includes('touch')) {
+        const touch = e.touches[0];
+        const rect = canvas.getBoundingClientRect();
+        x = touch.clientX - rect.left;
+        y = touch.clientY - rect.top;
+    } else {
+        x = e.offsetX;
+        y = e.offsetY;
+    }
+    
+    return { x, y };
+}
+
+function handleTouchStart(e) {
+    e.preventDefault();
+    startDrawing(e);
+}
+
+function handleTouchMove(e) {
+    e.preventDefault();
+    draw(e);
+}
+
+function clearCanvas() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);    
+    sendDrawingData({ type: 'clear' });
+}
+
+function sendDrawingData(data) {
+    dataChannels.forEach((dataChannel) => {
+        if (dataChannel && dataChannel.readyState === 'open') {
+            dataChannel.send(JSON.stringify(data));
+        }
+    });
+}
+
+function drawOnCanvas(data) {
+    if (data.type === 'clear') {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    } else if (data.type === 'drawing') {
+        ctx.beginPath();
+        ctx.moveTo(data.prevX, data.prevY);
+        ctx.lineTo(data.x, data.y);
+        ctx.strokeStyle = data.color;
+        ctx.lineWidth = data.thickness;
+        ctx.lineCap = 'round';
         ctx.stroke();
     }
-});
-
-canvas.addEventListener('mouseup', () => isDrawing = false);
-canvas.addEventListener('mouseleave', () => isDrawing = false);
-
-const clearCanvasButton = document.getElementById('clear-canvas');
-
-clearCanvasButton.addEventListener('click', () => {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-});
+}
