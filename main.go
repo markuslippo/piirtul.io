@@ -33,7 +33,8 @@ func main() {
 		templates: template.Must(template.ParseFS(os.DirFS("."), "views/*.html")),
 	}
 
-	e.Use(middleware.Logger())
+	// Uncomment if you want browser specific logs
+	//e.Use(middleware.Logger())
 	e.Use(middleware.Secure())
 	e.Use(middleware.RemoveTrailingSlash())
 
@@ -41,7 +42,7 @@ func main() {
 		users: []*User{},
 		rooms: &RoomService{
 			DB: &RoomSlice{
-				rooms: []*Room{},
+				rooms: make([]*Room, 0),
 			},
 		},
 		upgrader: websocket.Upgrader{
@@ -54,6 +55,7 @@ func main() {
 	}
 
 	e.Static("/assets", "static")
+
 	e.GET("/assets/*", func(c echo.Context) error {
 		filePath := c.Param("*")
 	
@@ -63,8 +65,8 @@ func main() {
 			return c.File(filepath.Join("static", filePath)) 
 		}
 	})
-
 	e.GET("/", staticRender("landing"))
+	e.GET("/initiate", initiateHandler(ss.rooms, &ss))
 	e.GET("/room", staticRender("main"))
 	e.GET("/websocket", ss.Handler)
 

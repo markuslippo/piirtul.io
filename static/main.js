@@ -7,7 +7,9 @@ window.RTCIceCandidate = window.RTCIceCandidate || window.mozRTCIceCandidate || 
 window.RTCSessionDescription = window.RTCSessionDescription || window.mozRTCSessionDescription || window.webkitRTCSessionDescription;
 
 // WebRTC connected user, the connection to peer and the data channel.
-let peerUsername, peerConnection, dataChannel;
+let peerConnections = new Map();
+// { name -> connection }
+let dataChannels = new Map();
 
 // ICE server
 const configuration = {
@@ -19,12 +21,14 @@ const sendMessageButton = document.querySelector('#send-message');
 const messageInput = document.querySelector('#chat-input');
 const chatArea = document.querySelector('#chat-messages');
 const usersList = document.getElementById('user-list');
+const roomIDBanner = document.getElementById('room-id');
 const roomStatus = document.getElementById('room-status');
 const quitButton = document.querySelector('.quit-button')
 
 // Our current user's name and the room owner's name
 let username;
-let roomOwner;
+//let roomOwner;
+let roomID;
 let role;
 
 // The array containing the participants of this room.
@@ -43,11 +47,21 @@ window.addEventListener('DOMContentLoaded', () => {
         localStorage.removeItem('user');
         role = user.role;
         username = user.name;
-        roomOwner = user.roomOwner || null;
+        roomID = user.roomID;
         initializeWebSocket();
     }
 });
 
+function generateRoomID(length) {
+    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    let result = '';
+    for (let i = 0; i < length; i++) {
+      const randomIndex = Math.floor(Math.random() * characters.length);
+      result += characters[randomIndex];
+    }
+    return result;
+  }
+  
 // Sends a message to the WebSocket, if it is open
 function send(message) {
     if(socket && socket.readyState === WebSocket.OPEN) {
@@ -55,41 +69,42 @@ function send(message) {
     }
 }
 
-
 // Initialize the WebSocket connection. After opening, send the initiation message.
 function initializeWebSocket() {
     socket = new WebSocket('ws://localhost:9090/websocket');
     socket.onopen = () => {
-        console.log("Connected to signaling server WebSocket.");
-        initiation();
+        console.log("✅ Connected to WebSocket.");
+        initiateUser();
     };
 
     socket.onerror = (err) => {
-        console.log("WebSocket error:", err);
+        console.log("❌ WebSocket error:", err);
     };
 
     // Then we wait and listen for messages.
     socket.onmessage = function(message) {
-        console.log("Received message:", message.data);
         var data = JSON.parse(message.data);
         switch(data.type) {
             case "initiation":
-                onInitiation(data.success);
+                onInitiationResponse(data.success);
+                break;
+            case "roomInitiation":
+                onRoomInitiationResponse(data.success, data.room_id, data.participants);
                 break;
             case "offer":
-                onOffer(data.offer, data.name);
+                onOfferResponse(data.offer, data.name);
                 break;
             case "answer":
-                onAnswer(data.answer);
+                onAnswerResponse(data.answer, data.name);
                 break;
             case "candidate":
-                onCandidate(data.candidate);
+                onCandidateResponse(data.candidate, data.name);
                 break;
             case "peerLeavingRoom":
-                onPeerLeave();
+                onPeerLeaveResponse(data.name, data.room_destroy);
                 break;
-            case "roomAvailability":
-                onRoomAvailability(data.success);
+            case "leaveConfirmed":
+                leave();
                 break;
             default:
                 console.log("Unknown message type:", data.type);
@@ -100,42 +115,72 @@ function initializeWebSocket() {
 
 // Send the first message to the WebSocket. If room creator, send the initiation. 
 // If we are a participant, we send the roomAvailability message.
-function initiation() {
-    // Add ourself
+function initiateUser() {
+    console.log("❓ Sent initiation")
     addUser(username, role);
-    if (role === 'creator') {
-        send({ type: 'initiation', name: username, role: 'creator' });
-    } else if (role === 'participant') {
-        if (roomOwner) {
-            send({ type: 'roomAvailability', name: roomOwner });
-        }
-    }
+    send({type: 'initiation', name: username });
 }
 
 // Handles the initiation response from the server.
-function onInitiation(success) {
+function onInitiationResponse(success) {
     if (success === true) {
-        console.log("Initiation successful");
-        setupPeerConnection();
-        // Here if we have the peerUsername, we are the participant, and should open a datachannel and send the offer.
-        if (peerUsername) {
-            var dataChannelOptions = { reliable: true };
-            dataChannel = peerConnection.createDataChannel(peerUsername + "-dataChannel", dataChannelOptions);
-            openDataChannel();
+        console.log("✅ Initiation successful");
 
-            peerConnection.createOffer()
-            .then(function (offer) {
-                return peerConnection.setLocalDescription(offer);
-            })
-            .then(function () {
-                send({ type: "offer", name: peerUsername, offer: peerConnection.localDescription });
-            })
-            .catch(function (error) {
-                console.log("Error creating or setting offer:", error);
+        switch(role) {
+            case 'creator':
+                roomID = generateRoomID(4);
+                console.log("❓ Sent room initiation")
+                send({ type: 'roomInitiation', room_id: roomID, name: username, role: 'creator' });
+                break;
+            case 'participant':
+                console.log("❓ Sent room initiation")
+                send({ type: 'roomInitiation', room_id: roomID, name: username, role: 'participant' });
+                break;
+            default:
+                console.log("Unknown message type:", data.type);
+                break;
+        }
+    } else {
+        alert('An error occured in initialization')
+        window.location.href = '/'
+    }
+}
+
+// Handles the room initiation response from the server. 
+function onRoomInitiationResponse(success, newRoomID, participants) {
+    if (success) {
+        console.log("✅ Room initiation successful");
+        roomID = newRoomID
+        roomIDBanner.innerHTML += roomID;
+
+        if (role === "participant") {
+            participants.forEach(name => {
+                setupPeerConnection(name);
+                addUser(name, 'participant');
+
+                console.log("✅ Created data channel with ", name)
+                const dataChannel = peerConnections.get(name).createDataChannel(`${username}-${name}`, { reliable: true });
+                dataChannels.set(name, dataChannel);
+                openDataChannel(dataChannel);
+                console.log("✅ Opened data channel with ", name)
+
+                peerConnections.get(name).createOffer()
+                    .then(function (offer) {
+                        return peerConnections.get(name).setLocalDescription(offer);
+                    })
+                    .then(function () {
+                        console.log("❓Sent offer to ", name)
+                        send({ type: "offer", name: name, offer: peerConnections.get(name).localDescription });
+                    })
+                    .catch(function (error) {
+                        console.log("Error creating or setting offer:", error);
+                    });
+                
             });
         }
     } else {
-        console.log("Server: Initiation failed");
+        alert("An error occured when joining the room.");
+        window.location.href = '/';
     }
 }
 
@@ -143,93 +188,109 @@ function onInitiation(success) {
 // Initiate connection to handle upcoming ICE candidate event.
 // After both parties have their answer/offers, they start to exchange the candidates automatically.
 // Initiate connection to handle upcoming data channel event
-function setupPeerConnection() {
-    peerConnection = new RTCPeerConnection(configuration);
+function setupPeerConnection(nameOfPeer) {
+    const peerConnection = new RTCPeerConnection(configuration);
+    peerConnections.set(nameOfPeer, peerConnection);
+
     peerConnection.onicecandidate = function (event) {
         if (event.candidate) {
             send({
                 type: "candidate",
-                name: peerUsername,
+                name: nameOfPeer,
                 candidate: event.candidate
             });
         }
     };
+
     peerConnection.ondatachannel = function (event) {
-        dataChannel = event.channel;
-        openDataChannel();
+        const dataChannel = event.channel;
+        dataChannels.set(nameOfPeer, dataChannel);
+        openDataChannel(dataChannel); 
     };
 }
 
+
+
 // Handles the offer message forwarded via the server.
 // This code is executed only as a Room owner.
-function onOffer(offer, name) {
-    peerUsername = name;
-    displayRoomStatus(peerUsername + " has joined the room");
-    addUser(peerUsername, 'participant');
+function onOfferResponse(offer, name) {
+    console.log("✅ Offer received")
+    const peerConnection = new RTCPeerConnection(configuration);
+    peerConnections.set(name, peerConnection);
 
+    displayRoomStatus(name + " has joined the room");
+    addUser(name, 'participant');
+
+    peerConnection.onicecandidate = function (event) {
+        if (event.candidate) {
+            send({
+                type: "candidate",
+                name: name,
+                candidate: event.candidate
+            });
+        }
+    };
+
+    peerConnection.ondatachannel = function (event) {
+        const dataChannel = event.channel;
+        dataChannels.set(name, dataChannel);
+        openDataChannel(dataChannel);
+    };
+
+    // Set up the peer connection to handle the offer
     peerConnection.setRemoteDescription(new RTCSessionDescription(offer))
-    .then(function() {
-        return peerConnection.createAnswer();
+    .then(() => peerConnection.createAnswer())
+    .then(answer => peerConnection.setLocalDescription(answer))
+    .then(() => {
+        console.log("❓Sent answer to ", name)
+        send({ type: "answer", name: name, answer: peerConnection.localDescription });
     })
-    .then(function(answer) {
-        return peerConnection.setLocalDescription(answer);
-    })
-    .then(function() {
-        send({ type: "answer", name: peerUsername, answer: peerConnection.localDescription });
-    })
-    .catch(function(error) {
-        console.log("Error handling offer or setting descriptions:", error);
-    });
+    .catch(error => console.log("Error handling offer or setting descriptions:", error));
 }
+
+
+
 
 // Handles the answer message forwarded via the server.
 // Only for the participant.
-function onAnswer(answer) {
-    peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
-    displayRoomStatus(username + " has joined the room");
+function onAnswerResponse(answer, name) {
+    console.log("✅ Received answer from ", name)
+    peerConnections.get(name).setRemoteDescription(new RTCSessionDescription(answer));
+    displayRoomStatus(name + " has joined the room");
 }
 
 // The function that handles the candidate message forwarded via the server.
-function onCandidate(candidate) {
-    peerConnection.addIceCandidate(new RTCIceCandidate(candidate))
+function onCandidateResponse(candidate, name) {
+    peerConnections.get(name).addIceCandidate(new RTCIceCandidate(candidate))
     .then(function() {
-        console.log("ICE candidate successfully added");
+        console.log("✅ ICE candidate added with ", name);
     })
     .catch(function(error) {
-        console.log("Error adding ICE candidate:", error);
+        console.log("❌ Error adding ICE candidate:", error);
     });
 }
 
 // The function that handles leaving the WebRTC connection.
 // We also have to initialize the peer connection again.
-function onPeerLeave() {
-    console.log("Peer closed connection");
-    displayRoomStatus(peerUsername + ' has left the room');
-    removeUser(peerUsername);
-    peerUsername = null;
+function onPeerLeaveResponse(name, destroyRoom) {
+    console.log("✅ " + name + " has left the room.");
+    displayRoomStatus(name + ' has left the room.');
+    removeUser(name);
     
-    if (peerConnection) {
-        peerConnection.close();
-        peerConnection = null;
-    }
-    if (dataChannel) {
-        dataChannel.close();
-        dataChannel = null;
-    }
-    setupPeerConnection();
-}
-
-// Handle the room availability response. If room exists, send initiation. Only participant executes this code.
-function onRoomAvailability(success) {
-    if (success) {
-        console.log("Room available. Proceeding with login.");
-        send({ type: "initiation", name: username, role: "participant" });
-        peerUsername = roomOwner;
-        addUser(peerUsername, 'creator');
+    if(destroyRoom) {
+        console.log("Owner left, room is closing...")
+        sendLeave();
     } else {
-        alert("Room not found. Please check the room owner's name.");
-        socket.close();
-        window.location.href = '/';
+        peerConn = peerConnections.get(name);
+        channel = dataChannels.get(name);
+        if (channel != undefined) {
+            channel.close();
+            dataChannels.delete(name);
+        }
+        if (peerConn != undefined) {
+            peerConn.close();
+            peerConnections.delete(name);
+        }
     }
 }
 
@@ -244,36 +305,32 @@ sendMessageButton.addEventListener("click", function() {
 });
 
 // Open the WebRTC data channel
-function openDataChannel() {
-    dataChannel.onerror = function (error) {
-        console.log("Data Channel Error:", error);
-    };
-
+function openDataChannel(dataChannel) {
     dataChannel.onmessage = function (event) {
-        console.log("Message received:", event.data);
+        console.log("📩 Message received:", event.data);
         var receivedData = JSON.parse(event.data);
         displayMessage(receivedData.sender, receivedData.message);
     };
 
-    dataChannel.onopen = function () {
-        console.log("Data Channel opened");
-    };
-
-    dataChannel.onclose = function () {
-        console.log("Data Channel closed");
+    dataChannel.onerror = function (error) {
+        console.log("❌ Data Channel Error:", error);
     };
 }
 
 // The function that sends a message to the peer.
 function sendMessage(message) {
-    if (dataChannel && dataChannel.readyState === 'open') {
-        dataChannel.send(JSON.stringify({
-            sender: username,
-            message: message
-        }));
-    } else {
-        console.log("Data channel is not open. Unable to send message.");
-    }
+
+    dataChannels.forEach((dataChannel, name) => {
+        if (dataChannel && dataChannel.readyState === 'open') {
+            console.log("✅ Sent message to ", name);
+            dataChannel.send(JSON.stringify({
+                sender: username,
+                message: message
+            }));
+        } else {
+            console.log("❌ Unable to send message since datachannel is not open");
+        }
+    });   
 }
 
 // Display sent and received messages.
@@ -285,7 +342,9 @@ function displayMessage(sender, message) {
 
 // Display the room status
 function displayRoomStatus(status) {
-    roomStatus.textContent = status;
+    const statusItem = document.createElement('li');
+    statusItem.textContent = status;
+    roomStatus.appendChild(statusItem);
 }
 
 // Add user to users array and update DOM
@@ -318,29 +377,33 @@ function displayUsers(users) {
     });
 }
 
-quitButton.addEventListener('click', () => {
-    send({ type: 'leaveRoom', name: username})
-    if (peerConnection) {
-        peerConnection.close();
-        peerConnection = null;
-    }
-    if (dataChannel) {
-        dataChannel.close();
-        dataChannel = null;
-    }
+function leave() {
+    console.log("✅ Leaving room")
+    dataChannels.forEach((dataChannel, name) => {
+        if (dataChannel) {
+            dataChannel.close();
+        }
+    });
+    dataChannels.clear();
+    peerConnections.forEach((peerConnection, name) => {
+        if (peerConnection) {
+            peerConnection.close();
+        }
+    });
+    peerConnections.clear();
     socket.close();
-    window.location.href = '/'
+    alert("Leaving room.")
+    window.location.href = '/';
+}
+
+function sendLeave() {
+    console.log("❓ Sending leave")
+    send({ type: 'leaveRoom'});
+}
+
+quitButton.addEventListener('click', () => {
+    sendLeave();
 })
-
-function speakUserName(name) {
-    const utterance = new SpeechSynthesisUtterance(name);
-    speechSynthesis.speak(utterance);
-}
-
-function speakMessage(message) {
-    const utterance = new SpeechSynthesisUtterance(message);
-    speechSynthesis.speak(utterance);
-}
 
 // Drawing
 

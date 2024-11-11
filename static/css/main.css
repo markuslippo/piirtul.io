@@ -6,7 +6,8 @@
     height: 100vh;
 }
 
-.user-list, .chat {
+.user-list,
+.chat {
     width: 300px;
     padding: 20px;
     background-color: #1c1f24;
@@ -17,9 +18,9 @@
     margin-bottom: 10px;
     height: calc(100vh - 200px);
     overflow-y: scroll;
-    border: 1px solid #555; 
+    border: 1px solid #555;
     padding: 10px;
-    background-color: #282c34; 
+    background-color: #282c34;
     color: #e6e6e6;
     border-radius: 8px;
     font-family: Arial, sans-serif;
@@ -30,6 +31,7 @@
 .chat-messages::-webkit-scrollbar {
     display: none;
 }
+
 .chat-messages {
     -ms-overflow-style: none;
     scrollbar-width: none;
@@ -67,7 +69,7 @@
     border: none;
     border-radius: 4px;
     cursor: pointer;
-    box-sizing: border-box; 
+    box-sizing: border-box;
 }
 
 #send-message:hover {
