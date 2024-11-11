@@ -70,7 +70,6 @@ func (roomService *RoomService) DeleteRoom(roomID string) error {
 	return roomService.DB.DeleteRoom(roomID)
 }
 
-
 // Clears all rooms.
 func (roomService *RoomService) Clear() error {
 	return roomService.DB.Clear()
@@ -119,7 +118,6 @@ func (roomSlice *RoomSlice) GetFirstRoomWithUser(user *User) (*Room, error) {
 	return nil, nil
 }
 
-
 // Joins a room.
 func (roomSlice *RoomSlice) Join(roomID string, user *User) error {
 	if user == nil {
@@ -139,7 +137,7 @@ func (roomSlice *RoomSlice) Join(roomID string, user *User) error {
 
 func (roomSlice *RoomSlice) RemoveUserFromRoom(roomID string, user *User) error {
 	if roomID == "" || user == nil {
-		return errors.New("Request is missing data")
+		return errors.New("request is missing data")
 	}
 	room, err := roomSlice.Get(roomID)
 	if err != nil {
@@ -159,7 +157,7 @@ func (roomSlice *RoomSlice) RemoveUserFromRoom(roomID string, user *User) error 
 }
 
 func (roomSlice *RoomSlice) DeleteRoom(roomID string) error {
-	
+
 	for i, room := range roomSlice.rooms {
 		if room.ID == roomID {
 			roomSlice.rooms = append(roomSlice.rooms[:i], roomSlice.rooms[i+1:]...)
@@ -168,8 +166,6 @@ func (roomSlice *RoomSlice) DeleteRoom(roomID string) error {
 	}
 	return nil
 }
-
-
 
 // Clears all rooms.
 func (roomSlice *RoomSlice) Clear() error {

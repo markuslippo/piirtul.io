@@ -31,7 +31,8 @@ func main() {
 		templates: template.Must(template.ParseFS(os.DirFS("."), "views/*.html")),
 	}
 
-	e.Use(middleware.Logger())
+	// Uncomment if you want browser specific logs
+	//e.Use(middleware.Logger())
 	e.Use(middleware.Secure())
 	e.Use(middleware.RemoveTrailingSlash())
 
@@ -52,8 +53,8 @@ func main() {
 	}
 
 	e.Static("/assets", "static")
-
 	e.GET("/", staticRender("landing"))
+	e.GET("/initiate", initiateHandler(ss.rooms, &ss))
 	e.GET("/room", staticRender("main"))
 	e.GET("/websocket", ss.Handler)
 

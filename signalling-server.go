@@ -29,27 +29,6 @@ func (ss *SignalingServer) AddUser(conn *websocket.Conn, name string) {
 	ss.users = append(ss.users, &User{Name: name, Conn: conn})
 }
 
-// Returns a list of all connected users.
-func (ss *SignalingServer) AllUserNames() []string {
-	ss.mux.Lock()
-	defer ss.mux.Unlock()
-
-	users := make([]string, len(ss.users))
-	for _, user := range ss.users {
-		users = append(users, user.Name)
-	}
-
-	return users
-}
-
-// Iterates over all connected users and applies the provided function (notify)
-func (ss *SignalingServer) NotifyUsers(notify func(*User)) {
-	// TODO: handle error
-	for _, user := range ss.users {
-		notify(user)
-	}
-}
-
 // Returns a User associated with the given connection.
 func (ss *SignalingServer) UserFromConn(conn *websocket.Conn) *User {
 	for _, user := range ss.users {

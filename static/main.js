@@ -7,7 +7,6 @@ window.RTCIceCandidate = window.RTCIceCandidate || window.mozRTCIceCandidate || 
 window.RTCSessionDescription = window.RTCSessionDescription || window.mozRTCSessionDescription || window.webkitRTCSessionDescription;
 
 // WebRTC connected user, the connection to peer and the data channel.
-
 let peerConnections = new Map();
 // { name -> connection }
 let dataChannels = new Map();
@@ -48,8 +47,7 @@ window.addEventListener('DOMContentLoaded', () => {
         localStorage.removeItem('user');
         role = user.role;
         username = user.name;
-        roomID = user.roomID || null;
-        //roomOwner = user.roomOwner || null;
+        roomID = user.roomID;
         initializeWebSocket();
     }
 });
@@ -71,22 +69,20 @@ function send(message) {
     }
 }
 
-
 // Initialize the WebSocket connection. After opening, send the initiation message.
 function initializeWebSocket() {
     socket = new WebSocket('ws://localhost:9090/websocket');
     socket.onopen = () => {
-        console.log("Connected to signaling server WebSocket.");
+        console.log("✅ Connected to WebSocket.");
         initiateUser();
     };
 
     socket.onerror = (err) => {
-        console.log("WebSocket error:", err);
+        console.log("❌ WebSocket error:", err);
     };
 
     // Then we wait and listen for messages.
     socket.onmessage = function(message) {
-        console.log("Received message:", message.data);
         var data = JSON.parse(message.data);
         switch(data.type) {
             case "initiation":
@@ -105,7 +101,10 @@ function initializeWebSocket() {
                 onCandidateResponse(data.candidate, data.name);
                 break;
             case "peerLeavingRoom":
-                onPeerLeaveResponse(data.name);
+                onPeerLeaveResponse(data.name, data.room_destroy);
+                break;
+            case "leaveConfirmed":
+                leave();
                 break;
             default:
                 console.log("Unknown message type:", data.type);
@@ -117,6 +116,7 @@ function initializeWebSocket() {
 // Send the first message to the WebSocket. If room creator, send the initiation. 
 // If we are a participant, we send the roomAvailability message.
 function initiateUser() {
+    console.log("❓ Sent initiation")
     addUser(username, role);
     send({type: 'initiation', name: username });
 }
@@ -124,14 +124,16 @@ function initiateUser() {
 // Handles the initiation response from the server.
 function onInitiationResponse(success) {
     if (success === true) {
-        console.log("Initiation successful");
+        console.log("✅ Initiation successful");
 
         switch(role) {
             case 'creator':
                 roomID = generateRoomID(4);
+                console.log("❓ Sent room initiation")
                 send({ type: 'roomInitiation', room_id: roomID, name: username, role: 'creator' });
                 break;
             case 'participant':
+                console.log("❓ Sent room initiation")
                 send({ type: 'roomInitiation', room_id: roomID, name: username, role: 'participant' });
                 break;
             default:
@@ -139,14 +141,15 @@ function onInitiationResponse(success) {
                 break;
         }
     } else {
-        console.log("Server: Initiation failed");
+        alert('An error occured in initialization')
+        window.location.href = '/'
     }
 }
 
 // Handles the room initiation response from the server. 
 function onRoomInitiationResponse(success, newRoomID, participants) {
     if (success) {
-        console.log("Room initiation successful");
+        console.log("✅ Room initiation successful");
         roomID = newRoomID
         roomIDBanner.innerHTML += roomID;
 
@@ -154,15 +157,19 @@ function onRoomInitiationResponse(success, newRoomID, participants) {
             participants.forEach(name => {
                 setupPeerConnection(name);
                 addUser(name, 'participant');
-                var dataChannelOptions = { reliable: true };
-                dataChannels.set(name, peerConnections.get(name).createDataChannel(name + "-dataChannel", dataChannelOptions))
-                openDataChannel(dataChannels.get(name));
+
+                console.log("✅ Created data channel with ", name)
+                const dataChannel = peerConnections.get(name).createDataChannel(`${username}-${name}`, { reliable: true });
+                dataChannels.set(name, dataChannel);
+                openDataChannel(dataChannel);
+                console.log("✅ Opened data channel with ", name)
 
                 peerConnections.get(name).createOffer()
                     .then(function (offer) {
                         return peerConnections.get(name).setLocalDescription(offer);
                     })
                     .then(function () {
+                        console.log("❓Sent offer to ", name)
                         send({ type: "offer", name: name, offer: peerConnections.get(name).localDescription });
                     })
                     .catch(function (error) {
@@ -172,8 +179,7 @@ function onRoomInitiationResponse(success, newRoomID, participants) {
             });
         }
     } else {
-        alert("Room not available. Please try again!");
-        socket.close();
+        alert("An error occured when joining the room.");
         window.location.href = '/';
     }
 }
@@ -208,6 +214,7 @@ function setupPeerConnection(nameOfPeer) {
 // Handles the offer message forwarded via the server.
 // This code is executed only as a Room owner.
 function onOfferResponse(offer, name) {
+    console.log("✅ Offer received")
     const peerConnection = new RTCPeerConnection(configuration);
     peerConnections.set(name, peerConnection);
 
@@ -224,16 +231,18 @@ function onOfferResponse(offer, name) {
         }
     };
 
-    // Room owner creates a data channel for the participant
-    const dataChannel = peerConnection.createDataChannel(name + "-dataChannel", { reliable: true });
-    dataChannels.set(name, dataChannel);
-    openDataChannel(dataChannel);  // Set up handlers for the new data channel
+    peerConnection.ondatachannel = function (event) {
+        const dataChannel = event.channel;
+        dataChannels.set(name, dataChannel);
+        openDataChannel(dataChannel);
+    };
 
     // Set up the peer connection to handle the offer
     peerConnection.setRemoteDescription(new RTCSessionDescription(offer))
     .then(() => peerConnection.createAnswer())
     .then(answer => peerConnection.setLocalDescription(answer))
     .then(() => {
+        console.log("❓Sent answer to ", name)
         send({ type: "answer", name: name, answer: peerConnection.localDescription });
     })
     .catch(error => console.log("Error handling offer or setting descriptions:", error));
@@ -245,6 +254,7 @@ function onOfferResponse(offer, name) {
 // Handles the answer message forwarded via the server.
 // Only for the participant.
 function onAnswerResponse(answer, name) {
+    console.log("✅ Received answer from ", name)
     peerConnections.get(name).setRemoteDescription(new RTCSessionDescription(answer));
     displayRoomStatus(name + " has joined the room");
 }
@@ -253,34 +263,35 @@ function onAnswerResponse(answer, name) {
 function onCandidateResponse(candidate, name) {
     peerConnections.get(name).addIceCandidate(new RTCIceCandidate(candidate))
     .then(function() {
-        console.log("ICE candidate successfully added");
+        console.log("✅ ICE candidate added with ", name);
     })
     .catch(function(error) {
-        console.log("Error adding ICE candidate:", error);
+        console.log("❌ Error adding ICE candidate:", error);
     });
 }
 
 // The function that handles leaving the WebRTC connection.
 // We also have to initialize the peer connection again.
-function onPeerLeaveResponse(name) {
-    console.log("Peer closed connection");
-    displayRoomStatus(name + ' has left the room');
+function onPeerLeaveResponse(name, destroyRoom) {
+    console.log("✅ " + name + " has left the room.");
+    displayRoomStatus(name + ' has left the room.');
     removeUser(name);
     
-    peerConn = peerConnections.get(name);
-    channel = dataChannels.get(name);
-
-    if (peerConn != undefined) {
-        peerConn.close();
-        peerConnections.delete(name);
+    if(destroyRoom) {
+        console.log("Owner left, room is closing...")
+        sendLeave();
+    } else {
+        peerConn = peerConnections.get(name);
+        channel = dataChannels.get(name);
+        if (channel != undefined) {
+            channel.close();
+            dataChannels.delete(name);
+        }
+        if (peerConn != undefined) {
+            peerConn.close();
+            peerConnections.delete(name);
+        }
     }
-    if (channel != undefined) {
-        channel.close();
-        dataChannels.delete(name);
-    }
-
-    //TODO rethink this
-    setupPeerConnection();
 }
 
 // Handle sending messages via the WebRTC data channel
@@ -295,22 +306,14 @@ sendMessageButton.addEventListener("click", function() {
 
 // Open the WebRTC data channel
 function openDataChannel(dataChannel) {
-    dataChannel.onerror = function (error) {
-        console.log("Data Channel Error:", error);
-    };
-
     dataChannel.onmessage = function (event) {
-        console.log("Message received:", event.data);
+        console.log("📩 Message received:", event.data);
         var receivedData = JSON.parse(event.data);
         displayMessage(receivedData.sender, receivedData.message);
     };
 
-    dataChannel.onopen = function () {
-        console.log("Data Channel opened");
-    };
-
-    dataChannel.onclose = function () {
-        console.log("Data Channel closed");
+    dataChannel.onerror = function (error) {
+        console.log("❌ Data Channel Error:", error);
     };
 }
 
@@ -319,12 +322,13 @@ function sendMessage(message) {
 
     dataChannels.forEach((dataChannel, name) => {
         if (dataChannel && dataChannel.readyState === 'open') {
+            console.log("✅ Sent message to ", name);
             dataChannel.send(JSON.stringify({
                 sender: username,
                 message: message
             }));
         } else {
-            console.log("Data channel is not open. Unable to send message.");
+            console.log("❌ Unable to send message since datachannel is not open");
         }
     });   
 }
@@ -338,7 +342,9 @@ function displayMessage(sender, message) {
 
 // Display the room status
 function displayRoomStatus(status) {
-    roomStatus.textContent = status;
+    const statusItem = document.createElement('li');
+    statusItem.textContent = status;
+    roomStatus.appendChild(statusItem);
 }
 
 // Add user to users array and update DOM
@@ -371,25 +377,30 @@ function displayUsers(users) {
     });
 }
 
-quitButton.addEventListener('click', () => {
-    send({ type: 'leaveRoom', name: username})
-
-    peerConnections.forEach((peerConnection, name) => {
-        if (peerConnection) {
-            peerConnection.close();
-        }
-    });
-
-    peerConnections.clear();
-
+function leave() {
+    console.log("✅ Leaving room")
     dataChannels.forEach((dataChannel, name) => {
         if (dataChannel) {
             dataChannel.close();
         }
     });
-
     dataChannels.clear();
-    
+    peerConnections.forEach((peerConnection, name) => {
+        if (peerConnection) {
+            peerConnection.close();
+        }
+    });
+    peerConnections.clear();
     socket.close();
-    window.location.href = '/'
+    alert("Leaving room.")
+    window.location.href = '/';
+}
+
+function sendLeave() {
+    console.log("❓ Sending leave")
+    send({ type: 'leaveRoom'});
+}
+
+quitButton.addEventListener('click', () => {
+    sendLeave();
 })
