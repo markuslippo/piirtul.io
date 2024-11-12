@@ -313,7 +313,7 @@ function openDataChannel(dataChannel) {
         if (receivedData.type === 'drawing') {
             drawOnCanvas(receivedData);
         } else if (receivedData.type === "clear") {
-            clearCanvas();
+            drawOnCanvas(receivedData);
         }else if (receivedData.type === 'chat') {
             displayMessage(receivedData.sender, receivedData.message);
         }        
@@ -504,7 +504,7 @@ function draw(e) {
 
 function stopDrawing() {
     isDrawing = false;
-    ctx.beginPath(); // Reset the path
+    ctx.beginPath();
 }
 
 function getCoordinates(e) {
@@ -536,6 +536,7 @@ function handleTouchMove(e) {
 function clearCanvas() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);    
     sendDrawingData({ type: 'clear' });
+    stopDrawing()
 }
 
 function sendDrawingData(data) {
@@ -549,6 +550,7 @@ function sendDrawingData(data) {
 function drawOnCanvas(data) {
     if (data.type === 'clear') {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        stopDrawing()
     } else if (data.type === 'drawing') {
         ctx.beginPath();
         ctx.moveTo(data.prevX, data.prevY);
