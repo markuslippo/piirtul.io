@@ -1,11 +1,11 @@
 package main
 
 import (
+	"embed"
 	"io"
+	"io/fs"
+	"log"
 	"net/http"
-	"os"
-	"path/filepath"
-	"strings"
 	"text/template"
 
 	"github.com/gorilla/websocket"
@@ -27,14 +27,21 @@ func staticRender(template string) echo.HandlerFunc {
 	}
 }
 
+//go:embed embed/*
+var embededFiles embed.FS
+
 func main() {
 	e := echo.New()
+
+	viewFiles, err := fs.Sub(embededFiles, "embed/views")
+	if err != nil {
+		log.Fatalf("failed to open filesystem views: %s", err.Error())
+	}
 	e.Renderer = &Template{
-		templates: template.Must(template.ParseFS(os.DirFS("."), "views/*.html")),
+		templates: template.Must(template.ParseFS(viewFiles, "*.html")),
 	}
 
-	// Uncomment if you want browser specific logs
-	//e.Use(middleware.Logger())
+	e.Use(middleware.Logger())
 	e.Use(middleware.Secure())
 	e.Use(middleware.RemoveTrailingSlash())
 
@@ -54,22 +61,16 @@ func main() {
 		},
 	}
 
-	e.Static("/assets", "static")
+	resourcesFiles, err := fs.Sub(embededFiles, "embed/assets")
+	if err != nil {
+		log.Fatalf("failed to open filesystem assets: %s", err.Error())
+	}
+	e.GET("/assets/*", echo.WrapHandler(http.StripPrefix("/assets/", http.FileServer(http.FS(resourcesFiles)))))
 
-	e.GET("/assets/*", func(c echo.Context) error {
-		filePath := c.Param("*")
-	
-		if strings.HasSuffix(filePath, ".js") {
-			return c.Attachment(filepath.Join("static", filePath), "inline; filename=\""+filepath.Base(filePath)+"\"; Content-Type: text/javascript") 
-		} else {
-			return c.File(filepath.Join("static", filePath)) 
-		}
-	})
 	e.GET("/", staticRender("landing"))
 	e.GET("/initiate", initiateHandler(ss.rooms, &ss))
 	e.GET("/room", staticRender("main"))
 	e.GET("/websocket", ss.Handler)
 
-	//e.Logger.Fatal(e.Start(":9090"))
-	e.Logger.Fatal(e.Start("localhost:9090"))
+	e.Logger.Fatal(e.Start("localhost:8080"))
 }
